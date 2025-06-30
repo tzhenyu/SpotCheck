@@ -2,7 +2,7 @@
 Awesome Hackathon Project 🚀  
 _A short, catchy description goes here._
 
----
+
 
 ## Demo Link & Screenshots
 
@@ -10,14 +10,13 @@ _A short, catchy description goes here._
 - **Video/GIFs/Screenshots:**  
   ![Demo Screenshot](./assets/demo-screenshot.png)
 
----
 
 ## Introduction
 
 Brief overview of the project and its purpose.  
 _What problem does it solve? Who is it for?_
 
----
+
 
 ## Features
 
@@ -25,7 +24,7 @@ _What problem does it solve? Who is it for?_
 - Feature 2: Another important functionality
 - Feature 3: Something else cool
 
----
+
 
 ## How It Works / Architecture
 
@@ -36,7 +35,6 @@ _High-level diagram below (if available):_
 [ User ] --> [ Frontend ] --> [ Backend ] --> [ Database ]
 ```
 
----
 
 ## Tech Stack
 
@@ -45,7 +43,7 @@ _High-level diagram below (if available):_
 - Database: MongoDB
 - Other: Docker, AWS S3
 
----
+
 
 ## Getting Started
 
@@ -72,7 +70,7 @@ npm run dev
 docker compose up
 ```
 
----
+
 
 ## Usage
 
@@ -82,7 +80,7 @@ docker compose up
 - CLI command example:  
   `npm run custom-script`
 
----
+
 
 ## Team / Contributors
 
