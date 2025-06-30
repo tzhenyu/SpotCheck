@@ -35,7 +35,6 @@ _High-level diagram below (if available):_
 [ User ] --> [ Frontend ] --> [ Backend ] --> [ Database ]
 ```
 
----
 
 ## Tech Stack
 
