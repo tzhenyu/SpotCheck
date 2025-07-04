@@ -1,0 +1,24 @@
+{
+  "manifest_version": 3,
+  "name": "Shopee Comment Extractor",
+  "version": "1.0",
+  "description": "Extracts Shopee product review comments.",
+  "permissions": [],
+  "host_permissions": [
+    "https://shopee.*/*"
+  ],
+  "content_scripts": [
+    {
+        "matches": [
+        "https://*.shopee.com/*",
+        "https://*.shopee.sg/*",
+        "https://*.shopee.ph/*",
+        "https://*.shopee.co.id/*",
+        "https://*.shopee.com.my/*"
+        ],
+      "js": ["contentScript.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}
+
