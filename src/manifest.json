@@ -3,19 +3,30 @@
   "name": "Shopee Comment Extractor",
   "version": "1.0",
   "description": "Extracts Shopee product review comments.",
-  "permissions": [],
-  "host_permissions": [
-    "https://shopee.*/*"
+  "permissions": [
+    "activeTab"
   ],
+  "host_permissions": [
+    "https://*.shopee.com/*",
+    "https://*.shopee.sg/*", 
+    "https://*.shopee.ph/*",
+    "https://*.shopee.co.id/*",
+    "https://*.shopee.com.my/*",
+    "http://127.0.0.1:8000/*",
+    "http://localhost:8000/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
   "content_scripts": [
     {
-        "matches": [
+      "matches": [
         "https://*.shopee.com/*",
         "https://*.shopee.sg/*",
         "https://*.shopee.ph/*",
         "https://*.shopee.co.id/*",
         "https://*.shopee.com.my/*"
-        ],
+      ],
       "js": ["contentScript.js"],
       "run_at": "document_idle"
     }
