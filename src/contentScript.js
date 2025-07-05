@@ -1,3 +1,32 @@
+const API_BASE_URL = "http://127.0.0.1:8000";
+const API_TIMEOUT_MS = 5000;
+
+async function callTestEndpoint() {
+  try {
+    console.log("Sending API request to background script...");
+    
+    return new Promise((resolve) => {
+      chrome.runtime.sendMessage(
+        { action: "callAPI", endpoint: "test" },
+        (response) => {
+          console.log("Received response from background script:", response);
+          if (response && response.success) {
+            resolve(response.data);
+          } else {
+            resolve({ 
+              message: response?.error || "Error communicating with background script", 
+              error: true 
+            });
+          }
+        }
+      );
+    });
+  } catch (error) {
+    console.error("Error in content script:", error);
+    return { message: `Error: ${error.message}`, error: true };
+  }
+}
+
 function extractShopeeCommentTexts() {
   return Array.from(document.querySelectorAll('div.YNedDV'))
     .map(el => el.textContent.trim());
@@ -32,6 +61,32 @@ function showCommentsOverlay(comments) {
   });
 
   document.body.appendChild(logDiv);
+  
+  // Add a "loading" message for API call
+  const apiLoadingDiv = document.createElement('div');
+  apiLoadingDiv.id = 'api-loading';
+  apiLoadingDiv.style.marginTop = '10px';
+  apiLoadingDiv.style.color = '#fff';
+  apiLoadingDiv.textContent = 'Connecting to API...';
+  logDiv.appendChild(apiLoadingDiv);
+  
+  // Call the test endpoint when showing comments
+  callTestEndpoint().then(result => {
+    const loadingDiv = document.getElementById('api-loading');
+    if (loadingDiv) loadingDiv.remove();
+    
+    const apiResultDiv = document.createElement('div');
+    apiResultDiv.style.marginTop = '10px';
+    apiResultDiv.style.color = result.error ? '#f55' : '#ff0';
+    
+    if (result.error) {
+      apiResultDiv.innerHTML = `<b>API Error:</b> ${result.message}`;
+    } else {
+      apiResultDiv.textContent = `API Response: ${result.message || 'No message received'}`;
+    }
+    
+    logDiv.appendChild(apiResultDiv);
+  });
 }
 
 // Watch for changes in the comment list container
