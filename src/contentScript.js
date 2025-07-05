@@ -1,13 +1,22 @@
 const API_BASE_URL = "http://127.0.0.1:8000";
-const API_TIMEOUT_MS = 5000;
+const DEBOUNCE_DELAY = 500;
 
-async function callTestEndpoint() {
+// Track already analyzed comments to avoid duplicate API calls
+let analyzedComments = new Set();
+let isApiCallInProgress = false;
+let apiCallTimer = null;
+
+async function callTestEndpoint(comments) {
   try {
-    console.log("Sending API request to background script...");
+    console.log("Sending comments to background script...");
     
     return new Promise((resolve) => {
       chrome.runtime.sendMessage(
-        { action: "callAPI", endpoint: "test" },
+        { 
+          action: "callAPI", 
+          endpoint: "comments",
+          data: { comments }
+        },
         (response) => {
           console.log("Received response from background script:", response);
           if (response && response.success) {
@@ -32,61 +41,130 @@ function extractShopeeCommentTexts() {
     .map(el => el.textContent.trim());
 }
 
+function displayResultsInComments(results) {
+  if (!results || !results.results || results.results.length === 0) return;
+  
+  try {
+    // Set flag to prevent observer from responding to our DOM changes
+    window.isUpdatingCommentDOM = true;
+    
+    const commentDivs = document.querySelectorAll('div.YNedDV');
+    if (commentDivs.length !== results.results.length) {
+      console.error("Comment count mismatch:", commentDivs.length, results.results.length);
+      return;
+    }
+    
+    results.results.forEach((result, idx) => {
+      if (idx >= commentDivs.length) return;
+      
+      const commentDiv = commentDivs[idx];
+      const analysisDiv = document.createElement('div');
+      analysisDiv.className = 'comment-analysis';
+      analysisDiv.style.marginTop = '4px';
+      analysisDiv.style.padding = '4px';
+      analysisDiv.style.borderRadius = '4px';
+      analysisDiv.style.backgroundColor = result.is_fake ? 'rgba(255,85,85,0.1)' : 'rgba(85,255,85,0.1)';
+      analysisDiv.style.border = `1px solid ${result.is_fake ? '#f55' : '#5f5'}`;
+      analysisDiv.style.fontSize = '12px';
+      
+      analysisDiv.innerHTML = `<span style="font-weight:bold;color:${result.is_fake ? '#f55' : '#5f5'}">${result.is_fake ? 'FAKE' : 'REAL'}</span>: ${result.explanation}`;
+      
+      // Remove any previously added analysis
+      const existingAnalysis = commentDiv.querySelector('.comment-analysis');
+      if (existingAnalysis) existingAnalysis.remove();
+      
+      commentDiv.appendChild(analysisDiv);
+    });
+  } finally {
+    // Always reset the flag when done
+    setTimeout(() => {
+      window.isUpdatingCommentDOM = false;
+    }, 100);
+  }
+}
+
 function showCommentsOverlay(comments) {
+  // Don't process if no comments or already processing
+  if (!comments.length || isApiCallInProgress) return;
+  
+  // Check if these comments have already been processed
+  const commentsHash = comments.join('|');
+  if (analyzedComments.has(commentsHash)) return;
+  
+  // Mark as in progress and track these comments
+  isApiCallInProgress = true;
+  analyzedComments.add(commentsHash);
+  
+  // Flag to track if we're making DOM changes to prevent observer loop
+  window.isUpdatingCommentDOM = true;
+
   // Remove previous overlay if exists
   let logDiv = document.getElementById('shopee-comments-overlay');
   if (logDiv) logDiv.remove();
 
-  // Create new overlay
+  // Create new overlay for loading indication only
   logDiv = document.createElement('div');
   logDiv.id = 'shopee-comments-overlay';
   logDiv.style.position = 'fixed';
   logDiv.style.bottom = '0';
   logDiv.style.left = '0';
   logDiv.style.width = '100vw';
-  logDiv.style.maxHeight = '200px';
-  logDiv.style.overflowY = 'auto';
+  logDiv.style.padding = '8px';
   logDiv.style.background = 'rgba(0,0,0,0.8)';
-  logDiv.style.color = '#0f0';
+  logDiv.style.color = '#fff';
   logDiv.style.fontFamily = 'monospace';
   logDiv.style.zIndex = '999999';
   logDiv.style.fontSize = '12px';
-  logDiv.style.padding = '5px';
-  logDiv.innerHTML = '<b>Shopee Comments:</b><br>';
-
-  comments.forEach((comment, idx) => {
-    const div = document.createElement('div');
-    div.textContent = `${idx + 1}. ${comment}`;
-    logDiv.appendChild(div);
-  });
-
-  document.body.appendChild(logDiv);
   
   // Add a "loading" message for API call
   const apiLoadingDiv = document.createElement('div');
   apiLoadingDiv.id = 'api-loading';
-  apiLoadingDiv.style.marginTop = '10px';
-  apiLoadingDiv.style.color = '#fff';
-  apiLoadingDiv.textContent = 'Connecting to API...';
+  apiLoadingDiv.textContent = 'Analyzing comments...';
   logDiv.appendChild(apiLoadingDiv);
   
-  // Call the test endpoint when showing comments
-  callTestEndpoint().then(result => {
-    const loadingDiv = document.getElementById('api-loading');
-    if (loadingDiv) loadingDiv.remove();
-    
-    const apiResultDiv = document.createElement('div');
-    apiResultDiv.style.marginTop = '10px';
-    apiResultDiv.style.color = result.error ? '#f55' : '#ff0';
+  document.body.appendChild(logDiv);
+  
+  // Call the API with comments
+  callTestEndpoint(comments).then(result => {
+    // Remove loading overlay when done
+    logDiv.remove();
+    isApiCallInProgress = false;
     
     if (result.error) {
-      apiResultDiv.innerHTML = `<b>API Error:</b> ${result.message}`;
+      // Show error in small overlay
+      const errorDiv = document.createElement('div');
+      errorDiv.id = 'shopee-comments-error';
+      errorDiv.style.position = 'fixed';
+      errorDiv.style.bottom = '0';
+      errorDiv.style.left = '0';
+      errorDiv.style.padding = '8px';
+      errorDiv.style.background = 'rgba(0,0,0,0.8)';
+      errorDiv.style.color = '#f55';
+      errorDiv.style.fontFamily = 'monospace';
+      errorDiv.style.zIndex = '999999';
+      errorDiv.style.fontSize = '12px';
+      errorDiv.innerHTML = `<b>Error:</b> ${result.message}`;
+      document.body.appendChild(errorDiv);
+      
+      // Remove error after 5 seconds
+      setTimeout(() => {
+        if (errorDiv.parentNode) errorDiv.remove();
+      }, 5000);
     } else {
-      apiResultDiv.textContent = `API Response: ${result.message || 'No message received'}`;
+      // Display results in the comment divs
+      displayResultsInComments(result);
     }
-    
-    logDiv.appendChild(apiResultDiv);
   });
+}
+
+// Debounced function to process comments
+function debouncedProcessComments() {
+  if (apiCallTimer) clearTimeout(apiCallTimer);
+  
+  apiCallTimer = setTimeout(() => {
+    const comments = extractShopeeCommentTexts();
+    showCommentsOverlay(comments);
+  }, DEBOUNCE_DELAY);
 }
 
 // Watch for changes in the comment list container
@@ -95,8 +173,10 @@ function observeShopeeComments() {
   if (!commentsSection) return;
 
   const observer = new MutationObserver(() => {
-    const comments = extractShopeeCommentTexts();
-    showCommentsOverlay(comments);
+    // Skip if we're the ones updating the DOM
+    if (window.isUpdatingCommentDOM) return;
+    
+    debouncedProcessComments();
   });
 
   // Observe subtree for any change (new comments, page change, etc)
@@ -113,6 +193,10 @@ let currentUrl = window.location.href;
 function checkUrlChange() {
   if (currentUrl !== window.location.href) {
     currentUrl = window.location.href;
+    // Reset tracking when URL changes
+    analyzedComments.clear();
+    isApiCallInProgress = false;
+    if (apiCallTimer) clearTimeout(apiCallTimer);
     waitForCommentsSection();
   }
 }

@@ -1,16 +1,23 @@
 const API_BASE_URL = "http://127.0.0.1:8000";
 
-async function callAPI(endpoint) {
+async function callAPI(endpoint, data = null) {
   try {
-    console.log(`Calling ${endpoint} from background script`);
-    const response = await fetch(`${API_BASE_URL}/${endpoint}`, {
-      method: 'GET',
+    console.log(`Calling ${endpoint} from background script with data:`, data);
+    
+    const options = {
+      method: data ? 'POST' : 'GET',
       headers: {
         'Accept': 'application/json',
         'Content-Type': 'application/json'
       },
       cache: 'no-cache'
-    });
+    };
+    
+    if (data) {
+      options.body = JSON.stringify(data);
+    }
+    
+    const response = await fetch(`${API_BASE_URL}/${endpoint}`, options);
     
     if (!response.ok) {
       throw new Error(`HTTP error ${response.status}`);
@@ -19,7 +26,7 @@ async function callAPI(endpoint) {
     return await response.json();
   } catch (error) {
     console.error(`Error calling ${endpoint}:`, error);
-    throw error; // Re-throw to be caught by the message handler
+    throw error;
   }
 }
 
@@ -29,7 +36,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   
   if (request.action === "callAPI") {
     // Handle API calls
-    callAPI(request.endpoint)
+    callAPI(request.endpoint, request.data)
       .then(data => {
         console.log("API call successful:", data);
         sendResponse({ success: true, data });
