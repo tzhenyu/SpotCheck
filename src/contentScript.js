@@ -1,8 +1,8 @@
 const API_BASE_URL = "http://127.0.0.1:8000";
 const DEBOUNCE_DELAY = 500;
 
-// Track already analyzed comments to avoid duplicate API calls
-let analyzedComments = new Set();
+// Track already analyzed comments to avoid duplicate API calls and store results
+let analyzedComments = new Map(); // Changed from Set to Map to store results
 let isApiCallInProgress = false;
 let apiCallTimer = null;
 
@@ -84,16 +84,23 @@ function displayResultsInComments(results) {
 }
 
 function showCommentsOverlay(comments) {
-  // Don't process if no comments or already processing
-  if (!comments.length || isApiCallInProgress) return;
+  // Don't process if no comments
+  if (!comments.length) return;
   
   // Check if these comments have already been processed
   const commentsHash = comments.join('|');
-  if (analyzedComments.has(commentsHash)) return;
   
-  // Mark as in progress and track these comments
+  // If already analyzed, display the cached results and return
+  if (analyzedComments.has(commentsHash)) {
+    displayResultsInComments(analyzedComments.get(commentsHash));
+    return;
+  }
+  
+  // Don't proceed if an API call is already in progress
+  if (isApiCallInProgress) return;
+  
+  // Mark as in progress
   isApiCallInProgress = true;
-  analyzedComments.add(commentsHash);
   
   // Flag to track if we're making DOM changes to prevent observer loop
   window.isUpdatingCommentDOM = true;
@@ -151,6 +158,8 @@ function showCommentsOverlay(comments) {
         if (errorDiv.parentNode) errorDiv.remove();
       }, 5000);
     } else {
+      // Store results for reuse
+      analyzedComments.set(commentsHash, result);
       // Display results in the comment divs
       displayResultsInComments(result);
     }
@@ -194,7 +203,7 @@ function checkUrlChange() {
   if (currentUrl !== window.location.href) {
     currentUrl = window.location.href;
     // Reset tracking when URL changes
-    analyzedComments.clear();
+    analyzedComments.clear(); // Keep this clear to reset tracking when URL changes
     isApiCallInProgress = false;
     if (apiCallTimer) clearTimeout(apiCallTimer);
     waitForCommentsSection();
