@@ -37,7 +37,7 @@ async function callTestEndpoint(comments) {
 }
 
 // Function to analyze comments using DirectGeminiAPI
-async function analyzeCommentsWithGemini(comments) {
+async function analyzeCommentsWithGemini(comments, productName = null) {
   try {
     console.log("Analyzing comments with Gemini API...");
     
@@ -56,7 +56,7 @@ async function analyzeCommentsWithGemini(comments) {
     }
     
     // Call Gemini API to analyze comments
-    const result = await window.DirectGeminiAPI.analyzeCommentsDirectly(comments, apiKey);
+    const result = await window.DirectGeminiAPI.analyzeCommentsDirectly(comments, apiKey, productName);
     return result;
   } catch (error) {
     console.error("Error analyzing with Gemini:", error);
@@ -127,8 +127,15 @@ function showCommentsOverlay(comments) {
   logDiv = ShopeeHelpers.createLoadingOverlay();
   document.body.appendChild(logDiv);
   
+  // Get product name
+  let productName = null;
+  const productNameElement = document.querySelector('h1.vR6K3w');
+  if (productNameElement) {
+    productName = productNameElement.textContent.trim();
+  }
+  
   // Call Gemini API instead of server API
-  analyzeCommentsWithGemini(comments).then(result => {
+  analyzeCommentsWithGemini(comments, productName).then(result => {
     // Remove loading overlay when done
     logDiv.remove();
     isApiCallInProgress = false;

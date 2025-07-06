@@ -70,9 +70,10 @@ async function callGeminiAPI(prompt, apiKey) {
  * Analyze comments directly using Gemini API
  * @param {string[]} comments - Array of comments to analyze
  * @param {string} apiKey - Optional Gemini API key (will use stored key if not provided)
+ * @param {string} productName - Optional product name for context
  * @returns {Promise<object>} Analysis results
  */
-async function analyzeCommentsDirectly(comments, apiKey = null) {
+async function analyzeCommentsDirectly(comments, apiKey = null, productName = null) {
   try {
     // Use provided API key or try to get from storage
     const key = apiKey || await getStoredApiKey();
@@ -83,14 +84,19 @@ async function analyzeCommentsDirectly(comments, apiKey = null) {
       };
     }
     
-    // Format the prompt for batch analysis
-    const prompt = "Analyze each product review below and determine if it's real or fake.\n" +
+    // Format the prompt for batch analysis with product name if available
+    const productContext = productName ? `Product name: ${productName}\n` : '';
+    const prompt = `${productContext}Analyze each product review below and determine if it's real or fake.\n` +
       "For each review, respond with REAL or FAKE followed by a brief explanation (15 words max).\n" +
       "Format your response as numbered list matching the order of reviews:\n\n" +
       comments.map((comment, i) => `${i+1}. Review: '${comment}'`).join('\n');
     
+    // Log the prompt being sent to the API
+    console.log("Sending prompt to Gemini API:", prompt);
+    
     // Call Gemini API directly using fetch
     const response = await callGeminiAPI(prompt, key);
+
     
     // Extract text from response
     const resultText = response.candidates[0].content.parts[0].text;
