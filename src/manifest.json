@@ -4,7 +4,8 @@
   "version": "1.0",
   "description": "Extracts Shopee product review comments.",
   "permissions": [
-    "activeTab"
+    "activeTab",
+    "storage"
   ],
   "host_permissions": [
     "https://*.shopee.com/*",
@@ -15,6 +16,9 @@
     "http://127.0.0.1:8000/*",
     "http://localhost:8000/*"
   ],
+  "action": {
+    "default_popup": "popup.html"
+  },
   "background": {
     "service_worker": "background.js"
   },
@@ -27,7 +31,7 @@
         "https://*.shopee.co.id/*",
         "https://*.shopee.com.my/*"
       ],
-      "js": ["contentScript.js"],
+      "js": ["contentHelpers.js", "directGeminiAPI.js", "contentScript.js"],
       "run_at": "document_idle"
     }
   ]

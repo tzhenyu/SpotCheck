@@ -1,0 +1,170 @@
+/**
+ * Direct Gemini API integration for Chrome extension
+ * Uses fetch directly to call the Gemini API
+ */
+
+const GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent";
+const API_KEY_STORAGE_KEY = "gemini_api_key";
+
+/**
+ * Store API key in local storage
+ * @param {string} apiKey - Gemini API key
+ */
+function storeApiKey(apiKey) {
+  try {
+    chrome.storage.local.set({ [API_KEY_STORAGE_KEY]: apiKey });
+  } catch (error) {
+    console.error("Failed to store API key:", error);
+  }
+}
+
+/**
+ * Get stored API key from local storage
+ * @returns {Promise<string>} Stored API key or null
+ */
+async function getStoredApiKey() {
+  return new Promise((resolve) => {
+    try {
+      chrome.storage.local.get([API_KEY_STORAGE_KEY], (result) => {
+        resolve(result[API_KEY_STORAGE_KEY] || null);
+      });
+    } catch (error) {
+      console.error("Failed to get API key from storage:", error);
+      resolve(null);
+    }
+  });
+}
+
+/**
+ * Call Gemini API directly using fetch
+ * @param {string} prompt - The prompt to send to Gemini
+ * @param {string} apiKey - The API key to use
+ * @returns {Promise<Object>} The API response
+ */
+async function callGeminiAPI(prompt, apiKey) {
+  const requestBody = {
+    contents: [{
+      parts: [{
+        text: prompt
+      }]
+    }]
+  };
+  
+  const response = await fetch(`${GEMINI_API_URL}?key=${apiKey}`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify(requestBody)
+  });
+  
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`Gemini API error (${response.status}): ${errorText}`);
+  }
+  
+  return response.json();
+}
+
+/**
+ * Analyze comments directly using Gemini API
+ * @param {string[]} comments - Array of comments to analyze
+ * @param {string} apiKey - Optional Gemini API key (will use stored key if not provided)
+ * @returns {Promise<object>} Analysis results
+ */
+async function analyzeCommentsDirectly(comments, apiKey = null) {
+  try {
+    // Use provided API key or try to get from storage
+    const key = apiKey || await getStoredApiKey();
+    if (!key) {
+      return { 
+        error: true, 
+        message: "Gemini API key not found. Please set your API key." 
+      };
+    }
+    
+    // Format the prompt for batch analysis
+    const prompt = "Analyze each product review below and determine if it's real or fake.\n" +
+      "For each review, respond with REAL or FAKE followed by a brief explanation (15 words max).\n" +
+      "Format your response as numbered list matching the order of reviews:\n\n" +
+      comments.map((comment, i) => `${i+1}. Review: '${comment}'`).join('\n');
+    
+    // Call Gemini API directly using fetch
+    const response = await callGeminiAPI(prompt, key);
+    
+    // Extract text from response
+    const resultText = response.candidates[0].content.parts[0].text;
+    
+    // Parse results
+    const lines = resultText.split('\n');
+    const results = [];
+    
+    let currentIndex = 0;
+    for (let i = 0; i < comments.length; i++) {
+      const comment = comments[i];
+      let resultLine = "";
+      
+      // Find the line with this comment's result
+      for (let j = currentIndex; j < lines.length; j++) {
+        if (lines[j].trim().startsWith(`${i+1}.`)) {
+          resultLine = lines[j].trim();
+          currentIndex = j + 1;
+          break;
+        }
+      }
+      
+      // Parse the result
+      const isFake = resultLine.toLowerCase().includes('fake');
+      let explanation = resultLine.replace(`${i+1}.`, "").trim();
+      
+      // Clean up the explanation
+      if (isFake && explanation.toLowerCase().startsWith("fake:")) {
+        explanation = explanation.replace(/fake:/i, "").trim();
+      } else if (!isFake && explanation.toLowerCase().startsWith("real:")) {
+        explanation = explanation.replace(/real:/i, "").trim();
+      }
+      
+      results.push({
+        comment: comment.length > 50 ? comment.substring(0, 50) + "..." : comment,
+        is_fake: isFake,
+        explanation: explanation
+      });
+    }
+    
+    return {
+      message: `Processed ${results.length} comments`,
+      results: results
+    };
+    
+  } catch (error) {
+    console.error("Error analyzing comments with Gemini directly:", error);
+    return { 
+      error: true, 
+      message: `Gemini API error: ${error.message || "Unknown error"}` 
+    };
+  }
+}
+
+/**
+ * Prompt user for API key
+ * @returns {Promise<string|null>} API key or null if cancelled
+ */
+async function promptForApiKey() {
+  return new Promise((resolve) => {
+    const apiKey = prompt("Please enter your Gemini API key:");
+    if (apiKey && apiKey.trim()) {
+      storeApiKey(apiKey.trim());
+      resolve(apiKey.trim());
+    } else {
+      resolve(null);
+    }
+  });
+}
+
+// Export functions
+window.DirectGeminiAPI = {
+  analyzeCommentsDirectly,
+  promptForApiKey,
+  getStoredApiKey,
+  storeApiKey
+};

@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Shopee Comment Extractor</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      width: 320px;
+      padding: 16px;
+      margin: 0;
+    }
+    h1 {
+      font-size: 18px;
+      margin-top: 0;
+      color: #333;
+    }
+    .input-group {
+      margin-bottom: 16px;
+    }
+    label {
+      display: block;
+      margin-bottom: 6px;
+      font-weight: bold;
+      font-size: 14px;
+    }
+    input[type="text"] {
+      width: 100%;
+      padding: 8px;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      box-sizing: border-box;
+      font-size: 14px;
+    }
+    .buttons {
+      display: flex;
+      justify-content: space-between;
+    }
+    button {
+      padding: 8px 16px;
+      background: #4285f4;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 14px;
+      flex-grow: 1;
+      margin-right: 8px;
+    }
+    button:last-child {
+      margin-right: 0;
+    }
+    button.secondary {
+      background: #f1f1f1;
+      color: #333;
+    }
+    button:hover {
+      opacity: 0.9;
+    }
+    .status {
+      margin-top: 16px;
+      padding: 8px;
+      border-radius: 4px;
+      font-size: 14px;
+    }
+    .status.success {
+      background: rgba(76, 175, 80, 0.1);
+      color: #4caf50;
+    }
+    .status.error {
+      background: rgba(244, 67, 54, 0.1);
+      color: #f44336;
+    }
+    .hidden {
+      display: none;
+    }
+  </style>
+</head>
+<body>
+  <h1>Shopee Comment Analyzer</h1>
+  
+  <div class="input-group">
+    <label for="api-key">Gemini API Key</label>
+    <input type="text" id="api-key" placeholder="Enter your Gemini API key">
+  </div>
+  
+  <div class="buttons">
+    <button id="save-btn">Save API Key</button>
+    <button id="clear-btn" class="secondary">Clear</button>
+  </div>
+  
+  <div id="status-message" class="status hidden"></div>
+  
+  <script src="popup.js"></script>
+</body>
+</html>

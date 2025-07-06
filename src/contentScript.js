@@ -36,9 +36,32 @@ async function callTestEndpoint(comments) {
   }
 }
 
-function extractShopeeCommentTexts() {
-  return Array.from(document.querySelectorAll('div.YNedDV'))
-    .map(el => el.textContent.trim());
+// Function to analyze comments using DirectGeminiAPI
+async function analyzeCommentsWithGemini(comments) {
+  try {
+    console.log("Analyzing comments with Gemini API...");
+    
+    // Check for stored API key
+    let apiKey = await window.DirectGeminiAPI.getStoredApiKey();
+    
+    // If no API key is found, prompt the user
+    if (!apiKey) {
+      apiKey = await window.DirectGeminiAPI.promptForApiKey();
+      if (!apiKey) {
+        return {
+          error: true,
+          message: "API key is required for Gemini analysis."
+        };
+      }
+    }
+    
+    // Call Gemini API to analyze comments
+    const result = await window.DirectGeminiAPI.analyzeCommentsDirectly(comments, apiKey);
+    return result;
+  } catch (error) {
+    console.error("Error analyzing with Gemini:", error);
+    return { message: `Gemini Analysis Error: ${error.message}`, error: true };
+  }
 }
 
 function displayResultsInComments(results) {
@@ -48,7 +71,7 @@ function displayResultsInComments(results) {
     // Set flag to prevent observer from responding to our DOM changes
     window.isUpdatingCommentDOM = true;
     
-    const commentDivs = document.querySelectorAll('div.YNedDV');
+    const commentDivs = document.querySelectorAll(ShopeeHelpers.SELECTORS.COMMENT_DIV);
     if (commentDivs.length !== results.results.length) {
       console.error("Comment count mismatch:", commentDivs.length, results.results.length);
       return;
@@ -58,19 +81,10 @@ function displayResultsInComments(results) {
       if (idx >= commentDivs.length) return;
       
       const commentDiv = commentDivs[idx];
-      const analysisDiv = document.createElement('div');
-      analysisDiv.className = 'comment-analysis';
-      analysisDiv.style.marginTop = '4px';
-      analysisDiv.style.padding = '4px';
-      analysisDiv.style.borderRadius = '4px';
-      analysisDiv.style.backgroundColor = result.is_fake ? 'rgba(255,85,85,0.1)' : 'rgba(85,255,85,0.1)';
-      analysisDiv.style.border = `1px solid ${result.is_fake ? '#f55' : '#5f5'}`;
-      analysisDiv.style.fontSize = '12px';
-      
-      analysisDiv.innerHTML = `<span style="font-weight:bold;color:${result.is_fake ? '#f55' : '#5f5'}">${result.is_fake ? 'FAKE' : 'REAL'}</span>: ${result.explanation}`;
+      const analysisDiv = ShopeeHelpers.createAnalysisDiv(result);
       
       // Remove any previously added analysis
-      const existingAnalysis = commentDiv.querySelector('.comment-analysis');
+      const existingAnalysis = commentDiv.querySelector(`.${ShopeeHelpers.DOM_CLASSES.COMMENT_ANALYSIS}`);
       if (existingAnalysis) existingAnalysis.remove();
       
       commentDiv.appendChild(analysisDiv);
@@ -109,54 +123,39 @@ function showCommentsOverlay(comments) {
   let logDiv = document.getElementById('shopee-comments-overlay');
   if (logDiv) logDiv.remove();
 
-  // Create new overlay for loading indication only
-  logDiv = document.createElement('div');
-  logDiv.id = 'shopee-comments-overlay';
-  logDiv.style.position = 'fixed';
-  logDiv.style.bottom = '0';
-  logDiv.style.left = '0';
-  logDiv.style.width = '100vw';
-  logDiv.style.padding = '8px';
-  logDiv.style.background = 'rgba(0,0,0,0.8)';
-  logDiv.style.color = '#fff';
-  logDiv.style.fontFamily = 'monospace';
-  logDiv.style.zIndex = '999999';
-  logDiv.style.fontSize = '12px';
-  
-  // Add a "loading" message for API call
-  const apiLoadingDiv = document.createElement('div');
-  apiLoadingDiv.id = 'api-loading';
-  apiLoadingDiv.textContent = 'Analyzing comments...';
-  logDiv.appendChild(apiLoadingDiv);
-  
+  // Create new overlay for loading indication using helper
+  logDiv = ShopeeHelpers.createLoadingOverlay();
   document.body.appendChild(logDiv);
   
-  // Call the API with comments
-  callTestEndpoint(comments).then(result => {
+  // Call Gemini API instead of server API
+  analyzeCommentsWithGemini(comments).then(result => {
     // Remove loading overlay when done
     logDiv.remove();
     isApiCallInProgress = false;
     
     if (result.error) {
-      // Show error in small overlay
-      const errorDiv = document.createElement('div');
-      errorDiv.id = 'shopee-comments-error';
-      errorDiv.style.position = 'fixed';
-      errorDiv.style.bottom = '0';
-      errorDiv.style.left = '0';
-      errorDiv.style.padding = '8px';
-      errorDiv.style.background = 'rgba(0,0,0,0.8)';
-      errorDiv.style.color = '#f55';
-      errorDiv.style.fontFamily = 'monospace';
-      errorDiv.style.zIndex = '999999';
-      errorDiv.style.fontSize = '12px';
-      errorDiv.innerHTML = `<b>Error:</b> ${result.message}`;
-      document.body.appendChild(errorDiv);
-      
-      // Remove error after 5 seconds
-      setTimeout(() => {
-        if (errorDiv.parentNode) errorDiv.remove();
-      }, 5000);
+      // Check if it's an API key issue
+      if (result.message.includes("API key")) {
+        // Ask user if they want to set API key
+        if (confirm("Gemini API key is missing or invalid. Would you like to set your API key now?")) {
+          window.DirectGeminiAPI.promptForApiKey().then(newKey => {
+            if (newKey) {
+              // Try again with the new key
+              isApiCallInProgress = false;
+              showCommentsOverlay(comments);
+            }
+          });
+        }
+      } else {
+        // Show error in small overlay using helper
+        const errorDiv = ShopeeHelpers.createErrorOverlay(result.message);
+        document.body.appendChild(errorDiv);
+        
+        // Remove error after 5 seconds
+        setTimeout(() => {
+          if (errorDiv.parentNode) errorDiv.remove();
+        }, 5000);
+      }
     } else {
       // Store results for reuse
       analyzedComments.set(commentsHash, result);
@@ -171,14 +170,14 @@ function debouncedProcessComments() {
   if (apiCallTimer) clearTimeout(apiCallTimer);
   
   apiCallTimer = setTimeout(() => {
-    const comments = extractShopeeCommentTexts();
+    const comments = ShopeeHelpers.extractShopeeCommentTexts();
     showCommentsOverlay(comments);
   }, DEBOUNCE_DELAY);
 }
 
 // Watch for changes in the comment list container
 function observeShopeeComments() {
-  const commentsSection = document.querySelector('.shopee-product-comment-list');
+  const commentsSection = document.querySelector(ShopeeHelpers.SELECTORS.COMMENT_LIST);
   if (!commentsSection) return;
 
   const observer = new MutationObserver(() => {
@@ -192,7 +191,7 @@ function observeShopeeComments() {
   observer.observe(commentsSection, { childList: true, subtree: true });
 
   // Initial run
-  const comments = extractShopeeCommentTexts();
+  const comments = ShopeeHelpers.extractShopeeCommentTexts();
   showCommentsOverlay(comments);
 }
 
@@ -219,14 +218,14 @@ function waitForCommentsSection() {
   if (existingOverlay) existingOverlay.remove();
   
   const observer = new MutationObserver(() => {
-    const section = document.querySelector('.shopee-product-comment-list');
+    const section = document.querySelector(ShopeeHelpers.SELECTORS.COMMENT_LIST);
     if (section) {
       observeShopeeComments();
       observer.disconnect();
     }
   });
 
-  if (document.querySelector('.shopee-product-comment-list')) {
+  if (document.querySelector(ShopeeHelpers.SELECTORS.COMMENT_LIST)) {
     observeShopeeComments();
     return;
   }
