@@ -32,7 +32,7 @@
         "https://*.shopee.co.id/*",
         "https://*.shopee.com.my/*"
       ],
-      "js": ["contentHelpers.js", "commentExtractor.js", "contentScript.js"],
+      "js": ["contentHelpers.js", "directGeminiAPI.js", "commentExtractor.js", "contentScript.js"],
       "run_at": "document_idle"
     }
   ]

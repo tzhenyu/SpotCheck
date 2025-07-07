@@ -92,11 +92,6 @@
   
   <div id="status-message" class="status hidden"></div>
   
-  <div class="buttons extraction-buttons">
-    <button id="extract-current-btn">Extract Current Page</button>
-    <button id="extract-all-btn">Extract All Pages</button>
-  </div>
-  
   <div id="extraction-progress" class="hidden">
     <div class="progress-bar-container">
       <div class="progress-bar" id="progress-bar"></div>
@@ -148,6 +143,21 @@
     h2 {
       font-size: 16px;
       margin-top: 0;
+    }
+    
+    .setting-group {
+      margin: 16px 0;
+    }
+    
+    .toggle-label {
+      display: flex;
+      align-items: center;
+      cursor: pointer;
+      font-size: 14px;
+    }
+    
+    .toggle-label input {
+      margin-right: 8px;
     }
   </style>
   

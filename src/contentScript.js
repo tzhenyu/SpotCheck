@@ -177,8 +177,16 @@ function debouncedProcessComments() {
   if (apiCallTimer) clearTimeout(apiCallTimer);
   
   apiCallTimer = setTimeout(() => {
-    const comments = ShopeeHelpers.extractShopeeCommentTexts();
-    showCommentsOverlay(comments);
+    // Give the DOM a moment to fully update (especially for pagination)
+    setTimeout(() => {
+      const comments = ShopeeHelpers.extractShopeeCommentTexts();
+      if (comments && comments.length > 0) {
+        console.log(`Processing ${comments.length} comments after pagination or DOM change`);
+        showCommentsOverlay(comments);
+      } else {
+        console.log('No comments found to process');
+      }
+    }, 200); // Small additional delay for pagination rendering
   }, DEBOUNCE_DELAY);
 }
 
@@ -187,7 +195,46 @@ function observeShopeeComments() {
   const commentsSection = document.querySelector(ShopeeHelpers.SELECTORS.COMMENT_LIST);
   if (!commentsSection) return;
 
-  const observer = new MutationObserver(() => {
+  // Set up pagination observer
+  const paginationObserver = new MutationObserver((mutations) => {
+    for (const mutation of mutations) {
+      if (mutation.attributeName === 'class' && 
+          (mutation.target.classList.contains('shopee-button-solid--primary') || 
+           mutation.target.closest('.shopee-page-controller'))) {
+        console.log('Pagination change detected');
+        debouncedProcessComments();
+        break;
+      }
+    }
+  });
+  
+  // Find pagination container and observe it if it exists
+  const paginationContainer = document.querySelector('.shopee-page-controller');
+  if (paginationContainer) {
+    paginationObserver.observe(paginationContainer, { 
+      childList: true, 
+      subtree: true, 
+      attributes: true,
+      attributeFilter: ['class']
+    });
+  }
+
+  // Also add click event listeners to pagination buttons
+  document.addEventListener('click', (event) => {
+    // Check if the clicked element is a pagination button or inside one
+    const isPaginationButton = event.target.closest('.shopee-page-controller') || 
+                              event.target.matches('.shopee-icon-button--right') || 
+                              event.target.matches('.shopee-icon-button--left');
+    
+    if (isPaginationButton) {
+      console.log('Pagination button clicked');
+      // Add a slight delay to let the page render new comments
+      setTimeout(() => debouncedProcessComments(), 500);
+    }
+  }, true);
+
+  // Standard DOM mutation observer for the comments section
+  const commentObserver = new MutationObserver(() => {
     // Skip if we're the ones updating the DOM
     if (window.isUpdatingCommentDOM) return;
     
@@ -195,7 +242,7 @@ function observeShopeeComments() {
   });
 
   // Observe subtree for any change (new comments, page change, etc)
-  observer.observe(commentsSection, { childList: true, subtree: true });
+  commentObserver.observe(commentsSection, { childList: true, subtree: true });
 
   // Initial run
   const comments = ShopeeHelpers.extractShopeeCommentTexts();
@@ -204,6 +251,7 @@ function observeShopeeComments() {
 
 // Set up URL change detection outside of waitForCommentsSection
 let currentUrl = window.location.href;
+let currentPaginationPage = '1'; // Track the current pagination page
 
 function checkUrlChange() {
   if (currentUrl !== window.location.href) {
@@ -214,9 +262,38 @@ function checkUrlChange() {
     if (apiCallTimer) clearTimeout(apiCallTimer);
     waitForCommentsSection();
   }
+  
+  // Check for pagination changes
+  checkPaginationChange();
 }
 
-// Poll for URL changes every 500ms (since SPAs can change URL without triggering events)
+// Check if pagination has changed
+function checkPaginationChange() {
+  try {
+    // Try to find the active pagination button
+    const activePaginationElement = document.querySelector('.shopee-page-controller > .shopee-button-solid--primary');
+    if (activePaginationElement) {
+      const currentPage = activePaginationElement.textContent.trim();
+      
+      // If the page number changed, process comments again
+      if (currentPage !== currentPaginationPage) {
+        console.log(`Pagination changed from ${currentPaginationPage} to ${currentPage}`);
+        currentPaginationPage = currentPage;
+        
+        // Process comments with a delay to allow the page to render
+        setTimeout(() => {
+          if (isAutoExtractEnabled) {
+            debouncedProcessComments();
+          }
+        }, 500);
+      }
+    }
+  } catch (error) {
+    console.error('Error checking pagination:', error);
+  }
+}
+
+// Poll for URL and pagination changes every 500ms (since SPAs can change without triggering events)
 setInterval(checkUrlChange, 500);
 
 function waitForCommentsSection() {
@@ -224,23 +301,51 @@ function waitForCommentsSection() {
   const existingOverlay = document.getElementById('shopee-comments-overlay');
   if (existingOverlay) existingOverlay.remove();
   
+  // Reset pagination tracking
+  currentPaginationPage = '1';
+  
   const observer = new MutationObserver(() => {
     const section = document.querySelector(ShopeeHelpers.SELECTORS.COMMENT_LIST);
     if (section) {
+      // Make sure any pending API calls are reset
+      isApiCallInProgress = false;
+      if (apiCallTimer) clearTimeout(apiCallTimer);
+      
+      // Set up observers for comments and pagination
       observeShopeeComments();
+      
+      // Auto-extract comments when section is found if setting is enabled
+      if (isAutoExtractEnabled) {
+        // Give a moment for the page to fully render
+        setTimeout(() => debouncedProcessComments(), 300);
+      }
+      
       observer.disconnect();
     }
   });
 
   if (document.querySelector(ShopeeHelpers.SELECTORS.COMMENT_LIST)) {
+    // Make sure any pending API calls are reset
+    isApiCallInProgress = false;
+    if (apiCallTimer) clearTimeout(apiCallTimer);
+    
     observeShopeeComments();
+    
+    // Auto-extract comments if section is already on the page and setting is enabled
+    if (isAutoExtractEnabled) {
+      debouncedProcessComments();
+    }
+    
     return;
   }
 
   observer.observe(document.body, { childList: true, subtree: true });
 }
 
-// Listen for messages from popup
+// Auto-extract is now always enabled by default
+let isAutoExtractEnabled = true;
+
+// Listen for messages from popup or background script
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.action === "extractComments") {
     try {
@@ -266,6 +371,21 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       sendResponse({ error: true, message: error.message });
     }
     return true; // Keep the message channel open for async response
+  } else if (request.action === "autoExtractComments") {
+    // Auto extraction triggered by background script
+    console.log("Auto extraction triggered");
+    if (isAutoExtractEnabled) {
+      // Process comments using existing functionality
+      debouncedProcessComments();
+    } else {
+      console.log("Auto-extraction disabled, skipping");
+    }
+  } else if (request.action === "getProcessedComments") {
+    // Check if we have already processed comments on this page
+    const currentComments = ShopeeHelpers.extractShopeeCommentTexts();
+    const currentCommentsHash = currentComments.join('|');
+    const hasProcessedComments = analyzedComments.has(currentCommentsHash) && analyzedComments.size > 0;
+    sendResponse({ hasProcessedComments: hasProcessedComments });
   }
 });
 

@@ -9,8 +9,6 @@ const API_KEY_STORAGE_KEY = "gemini_api_key";
 const apiKeyInput = document.getElementById('api-key');
 const saveButton = document.getElementById('save-btn');
 const clearButton = document.getElementById('clear-btn');
-const extractCurrentButton = document.getElementById('extract-current-btn');
-const extractAllButton = document.getElementById('extract-all-btn');
 const statusMessage = document.getElementById('status-message');
 const commentsContainer = document.getElementById('comments-container');
 const commentsList = document.getElementById('comments-list');
@@ -30,6 +28,19 @@ function loadApiKey() {
         apiKeyInput.value = result[API_KEY_STORAGE_KEY];
         showStatus('API key loaded from storage', 'success');
       }
+      
+      // Get the current active tab to check if we're on Shopee
+      chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+        if (tabs[0] && tabs[0].url && tabs[0].url.includes('shopee.')) {
+          // Check if we need to manually trigger extraction or just display already processed comments
+          chrome.tabs.sendMessage(tabs[0].id, { action: "getProcessedComments" }, (response) => {
+            if (chrome.runtime.lastError || !response || !response.hasProcessedComments) {
+              // If comments haven't been processed yet, extract them now
+              extractComments();
+            }
+          });
+        }
+      });
     });
   } catch (error) {
     console.error('Failed to load API key:', error);
@@ -96,6 +107,14 @@ async function extractComments() {
     const isShopee = tab.url.includes('shopee.');
     if (!isShopee) {
       showStatus('Not on a Shopee page', 'error');
+      
+      // If auto-extracting when opening popup, display helpful message
+      const commentContainer = document.createElement('div');
+      commentContainer.className = 'comment-item';
+      commentContainer.innerHTML = '<div class="comment-text">Please navigate to a Shopee product page to extract comments.</div>';
+      commentsList.innerHTML = '';
+      commentsList.appendChild(commentContainer);
+      commentsContainer.classList.remove('hidden');
       return;
     }
     
@@ -135,6 +154,11 @@ function displayComments(comments) {
   // Clear previous comments
   commentsList.innerHTML = '';
   
+  // Update comment count
+  if (commentCount) {
+    commentCount.textContent = comments.length;
+  }
+  
   // Add each comment to the list
   comments.forEach(comment => {
     const commentItem = document.createElement('div');
@@ -172,8 +196,8 @@ function displayComments(comments) {
 // Event listeners
 saveButton.addEventListener('click', saveApiKey);
 clearButton.addEventListener('click', clearApiKey);
-extractCurrentButton.addEventListener('click', extractComments);
-extractAllButton.addEventListener('click', extractComments);
 
 // Initialize popup
-document.addEventListener('DOMContentLoaded', loadApiKey);
+document.addEventListener('DOMContentLoaded', () => {
+  loadApiKey();
+});
