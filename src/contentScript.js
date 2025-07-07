@@ -386,8 +386,136 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     const currentCommentsHash = currentComments.join('|');
     const hasProcessedComments = analyzedComments.has(currentCommentsHash) && analyzedComments.size > 0;
     sendResponse({ hasProcessedComments: hasProcessedComments });
+  } else if (request.action === "extractMultiPageComments") {
+    // Start multi-page extraction
+    const totalPages = request.pages || 5; // Default to 5 pages
+    extractMultiplePages(totalPages);
+    sendResponse({ started: true });
+    return true;
   }
 });
+
+// Function to navigate through pages and extract comments
+async function extractMultiplePages(totalPages) {
+  // Track pages and comments
+  let currentPage = 1;
+  let allExtractedComments = [];
+  const MAX_RETRIES = 3;
+  
+  try {
+    while (currentPage <= totalPages) {
+      // Send progress update to popup
+      chrome.runtime.sendMessage({
+        action: "extractionProgress",
+        currentPage: currentPage,
+        totalPages: totalPages,
+        complete: false
+      });
+      
+      // Extract comments from current page
+      let extractedComments = [];
+      let retries = 0;
+      let success = false;
+      
+      while (!success && retries < MAX_RETRIES) {
+        try {
+          // Use CommentExtractor if available
+          if (window.CommentExtractor) {
+            extractedComments = await window.CommentExtractor.extractAllComments(false);
+          } else if (window.ShopeeHelpers) {
+            extractedComments = window.ShopeeHelpers.extractDetailedCommentData();
+          }
+          
+          success = true;
+        } catch (error) {
+          console.error(`Error extracting page ${currentPage}, retry ${retries + 1}:`, error);
+          retries++;
+          // Wait a moment before retrying
+          await new Promise(resolve => setTimeout(resolve, 1000));
+        }
+      }
+      
+      // Add comments to collection
+      if (extractedComments && extractedComments.length > 0) {
+        allExtractedComments = allExtractedComments.concat(extractedComments);
+        
+        // Send progress with comments
+        chrome.runtime.sendMessage({
+          action: "extractionProgress",
+          currentPage: currentPage,
+          totalPages: totalPages,
+          comments: extractedComments,
+          complete: false
+        });
+      }
+      
+      // Go to next page if not the last page
+      if (currentPage < totalPages) {
+        const nextPageSuccess = await goToNextPage();
+        if (!nextPageSuccess) {
+          console.log("Could not navigate to next page, stopping extraction");
+          break;
+        }
+        
+        // Wait for page to load
+        await new Promise(resolve => setTimeout(resolve, 2000));
+      }
+      
+      currentPage++;
+    }
+    
+    // Send final completion message
+    chrome.runtime.sendMessage({
+      action: "extractionProgress",
+      currentPage: currentPage - 1,
+      totalPages: totalPages,
+      complete: true
+    });
+    
+    return allExtractedComments;
+  } catch (error) {
+    console.error("Error during multi-page extraction:", error);
+    
+    // Send error message
+    chrome.runtime.sendMessage({
+      action: "extractionProgress",
+      currentPage: currentPage,
+      totalPages: totalPages,
+      error: true,
+      errorMessage: error.message,
+      complete: true
+    });
+    
+    return allExtractedComments;
+  }
+}
+
+// Function to click the next page button
+async function goToNextPage() {
+  return new Promise(resolve => {
+    try {
+      // Find next button - various Shopee site versions might have different selectors
+      const nextButton = document.querySelector('.shopee-icon-button--right') || 
+                         document.querySelector('.shopee-page-controller .shopee-button-next') ||
+                         Array.from(document.querySelectorAll('.shopee-page-controller button')).find(btn => 
+                           btn.textContent.includes('>') || btn.innerHTML.includes('next'));
+      
+      if (!nextButton || nextButton.disabled) {
+        console.log("Next page button not found or disabled");
+        resolve(false);
+        return;
+      }
+      
+      // Click the button
+      nextButton.click();
+      console.log("Navigated to next page");
+      resolve(true);
+    } catch (error) {
+      console.error("Error navigating to next page:", error);
+      resolve(false);
+    }
+  });
+}
 
 // Start the watcher
 waitForCommentsSection();

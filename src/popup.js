@@ -9,6 +9,7 @@ const API_KEY_STORAGE_KEY = "gemini_api_key";
 const apiKeyInput = document.getElementById('api-key');
 const saveButton = document.getElementById('save-btn');
 const clearButton = document.getElementById('clear-btn');
+const extractAllButton = document.getElementById('extract-all-btn');
 const statusMessage = document.getElementById('status-message');
 const commentsContainer = document.getElementById('comments-container');
 const commentsList = document.getElementById('comments-list');
@@ -193,9 +194,84 @@ function displayComments(comments) {
   showStatus(`${comments.length} comments extracted`, 'success');
 }
 
+// Extract comments from multiple pages (navigate through pagination)
+async function extractAllPages() {
+  try {
+    // Get the current active tab
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    
+    if (!tab) {
+      showStatus('No active tab found', 'error');
+      return;
+    }
+    
+    // Check if we're on a Shopee site
+    const isShopee = tab.url.includes('shopee.');
+    if (!isShopee) {
+      showStatus('Not on a Shopee page', 'error');
+      return;
+    }
+    
+    // Show extraction is starting
+    extractionProgress.classList.remove('hidden');
+    progressBar.style.width = '0%';
+    progressText.textContent = 'Preparing to extract comments...';
+    showStatus('Starting multi-page extraction...', 'success');
+    
+    // Clear previous comments
+    commentsList.innerHTML = '';
+    storedComments = [];
+    
+    // Send message to content script to extract from multiple pages (5 pages)
+    chrome.tabs.sendMessage(
+      tab.id,
+      { action: "extractMultiPageComments", pages: 5 },
+      (response) => {
+        if (chrome.runtime.lastError) {
+          showStatus('Error communicating with page', 'error');
+          extractionProgress.classList.add('hidden');
+          console.error(chrome.runtime.lastError);
+          return;
+        }
+        
+        // Nothing to do here, updates will come through progress updates
+      }
+    );
+    
+    // Listen for progress updates
+    chrome.runtime.onMessage.addListener(function progressListener(message, sender, sendResponse) {
+      if (message.action === "extractionProgress") {
+        // Update progress bar
+        const percent = (message.currentPage / message.totalPages) * 100;
+        progressBar.style.width = `${percent}%`;
+        progressText.textContent = `Extracting page ${message.currentPage} of ${message.totalPages}...`;
+        
+        // Add comments to stored collection
+        if (message.comments && message.comments.length > 0) {
+          storedComments = storedComments.concat(message.comments);
+          displayComments(storedComments);
+        }
+        
+        // If complete, finalize
+        if (message.complete) {
+          chrome.runtime.onMessage.removeListener(progressListener);
+          showStatus(`Extracted ${storedComments.length} comments from ${message.totalPages} pages`, 'success');
+          extractionProgress.classList.add('hidden');
+        }
+      }
+      return true;
+    });
+  } catch (error) {
+    console.error('Failed to extract comments from multiple pages:', error);
+    showStatus('Failed to extract comments', 'error');
+    extractionProgress.classList.add('hidden');
+  }
+}
+
 // Event listeners
 saveButton.addEventListener('click', saveApiKey);
 clearButton.addEventListener('click', clearApiKey);
+extractAllButton.addEventListener('click', extractAllPages);
 
 // Initialize popup
 document.addEventListener('DOMContentLoaded', () => {

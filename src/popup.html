@@ -75,38 +75,7 @@
     .hidden {
       display: none;
     }
-  </style>
-</head>
-<body>
-  <h1>Shopee Comment Analyzer</h1>
-  
-  <div class="input-group">
-    <label for="api-key">Gemini API Key</label>
-    <input type="text" id="api-key" placeholder="Enter your Gemini API key">
-  </div>
-  
-  <div class="buttons">
-    <button id="save-btn">Save API Key</button>
-    <button id="clear-btn" class="secondary">Clear</button>
-  </div>
-  
-  <div id="status-message" class="status hidden"></div>
-  
-  <div id="extraction-progress" class="hidden">
-    <div class="progress-bar-container">
-      <div class="progress-bar" id="progress-bar"></div>
-    </div>
-    <div id="progress-text">Extracting comments...</div>
-  </div>
-  
-  <div id="comments-container" class="hidden">
-    <h2>Extracted Comments (<span id="comment-count">0</span>)</h2>
-    <div id="comments-list">
-      <!-- Comments will be inserted here -->
-    </div>
-  </div>
-  
-  <style>
+    
     #comments-container {
       margin-top: 20px;
       border-top: 1px solid #eee;
@@ -159,7 +128,70 @@
     .toggle-label input {
       margin-right: 8px;
     }
+    
+    #extraction-progress {
+      margin: 16px 0;
+    }
+    
+    .progress-bar-container {
+      width: 100%;
+      background-color: #f1f1f1;
+      border-radius: 4px;
+      height: 12px;
+      overflow: hidden;
+    }
+    
+    .progress-bar {
+      height: 100%;
+      background-color: #4285f4;
+      width: 0%;
+      transition: width 0.3s ease;
+    }
+    
+    #progress-text {
+      font-size: 12px;
+      margin-top: 4px;
+      color: #666;
+      text-align: center;
+    }
+    
+    .extraction-buttons {
+      margin-top: 16px;
+    }
   </style>
+</head>
+<body>
+  <h1>Shopee Comment Analyzer</h1>
+  
+  <div class="input-group">
+    <label for="api-key">Gemini API Key</label>
+    <input type="text" id="api-key" placeholder="Enter your Gemini API key">
+  </div>
+  
+  <div class="buttons">
+    <button id="save-btn">Save API Key</button>
+    <button id="clear-btn" class="secondary">Clear</button>
+  </div>
+  
+  <div id="status-message" class="status hidden"></div>
+  
+  <div class="buttons extraction-buttons">
+    <button id="extract-all-btn">Extract All Pages (5)</button>
+  </div>
+  
+  <div id="extraction-progress" class="hidden">
+    <div class="progress-bar-container">
+      <div class="progress-bar" id="progress-bar"></div>
+    </div>
+    <div id="progress-text">Extracting comments...</div>
+  </div>
+  
+  <div id="comments-container" class="hidden">
+    <h2>Extracted Comments (<span id="comment-count">0</span>)</h2>
+    <div id="comments-list">
+      <!-- Comments will be inserted here -->
+    </div>
+  </div>
   
   <script src="popup.js"></script>
 </body>
