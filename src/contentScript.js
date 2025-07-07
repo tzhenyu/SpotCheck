@@ -388,7 +388,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     sendResponse({ hasProcessedComments: hasProcessedComments });
   } else if (request.action === "extractMultiPageComments") {
     // Start multi-page extraction
-    const totalPages = request.pages || 5; // Default to 5 pages
+    const totalPages = request.pages || 15; // Default to 5 pages
     extractMultiplePages(totalPages);
     sendResponse({ started: true });
     return true;

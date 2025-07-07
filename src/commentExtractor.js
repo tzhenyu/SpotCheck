@@ -11,7 +11,8 @@ const COMMENT_SELECTORS = {
   COMMENT: 'div.YNedDV',
   COMMENT_CONTAINER: '.shopee-product-comment-list',
   PAGINATION_BUTTON: '.shopee-icon-button--right',
-  PAGINATION_ACTIVE: '.shopee-page-controller > .shopee-button-solid--primary'
+  PAGINATION_ACTIVE: '.shopee-page-controller > .shopee-button-solid--primary',
+  STAR_RATING: 'div.rGdC5O'
 };
 
 // Store accumulated comments across pagination
@@ -33,6 +34,7 @@ function extractCurrentPageComments() {
       const commentText = commentElement.textContent.trim();
       const username = extractUsername(commentContainer);
       const timestamp = extractTimestamp(commentContainer);
+      const starRating = extractStarRating(commentContainer);
       
       // Create a unique identifier to avoid duplicates when accumulating
       const commentId = `${username}-${timestamp}-${commentText.substring(0, 20)}`;
@@ -42,6 +44,7 @@ function extractCurrentPageComments() {
         username: username,
         timestamp: timestamp,
         isCensored: isCensoredUsername(commentContainer),
+        starRating: starRating,
         id: commentId
       };
       
@@ -129,6 +132,19 @@ function extractUsername(container) {
 }
 
 /**
+ * Extracts star rating from a comment container
+ * @param {HTMLElement} container - The comment container element
+ * @returns {number} The star rating (1-5) or 0 if not found
+ */
+function extractStarRating(container) {
+  const ratingElement = container.querySelector(COMMENT_SELECTORS.STAR_RATING);
+  if (!ratingElement) return 0;
+  
+  const solidStars = ratingElement.querySelectorAll('.icon-rating-solid');
+  return solidStars.length;
+}
+
+/**
  * Checks if the username is censored
  * @param {HTMLElement} container - The comment container element
  * @returns {boolean} True if username is censored
@@ -175,5 +191,6 @@ function waitForComments(callback) {
 window.CommentExtractor = {
   extractAllComments,
   waitForComments,
+  extractStarRating,
   COMMENT_SELECTORS
 };

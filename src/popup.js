@@ -10,6 +10,7 @@ const apiKeyInput = document.getElementById('api-key');
 const saveButton = document.getElementById('save-btn');
 const clearButton = document.getElementById('clear-btn');
 const extractAllButton = document.getElementById('extract-all-btn');
+const downloadCsvButton = document.getElementById('download-csv-btn');
 const statusMessage = document.getElementById('status-message');
 const commentsContainer = document.getElementById('comments-container');
 const commentsList = document.getElementById('comments-list');
@@ -133,7 +134,9 @@ async function extractComments() {
         }
         
         if (response && response.comments) {
-          displayComments(response.comments);
+          // Always reset stored comments when doing a single page extraction
+          storedComments = [];
+          displayComments(response.comments, false);
         } else {
           showStatus('No comments found or extraction failed', 'error');
         }
@@ -146,18 +149,23 @@ async function extractComments() {
 }
 
 // Display comments in the popup
-function displayComments(comments) {
+function displayComments(comments, append = false) {
   if (!comments || comments.length === 0) {
     showStatus('No comments found', 'error');
     return;
   }
   
-  // Clear previous comments
-  commentsList.innerHTML = '';
+  // Clear previous comments if not appending
+  if (!append) {
+    commentsList.innerHTML = '';
+    storedComments = comments.slice(); // Make a copy of the comments
+  } else {
+    storedComments = storedComments.concat(comments);
+  }
   
   // Update comment count
   if (commentCount) {
-    commentCount.textContent = comments.length;
+    commentCount.textContent = storedComments.length;
   }
   
   // Add each comment to the list
@@ -175,6 +183,19 @@ function displayComments(comments) {
     const timeSpan = document.createElement('span');
     timeSpan.className = 'timestamp';
     timeSpan.textContent = comment.timestamp;
+    
+    // Create star rating element if available
+    if (comment.starRating !== undefined) {
+      const ratingSpan = document.createElement('span');
+      ratingSpan.className = 'star-rating';
+      const starIcon = document.createElement('span');
+      starIcon.className = 'star-icon';
+      starIcon.textContent = '★';
+      ratingSpan.appendChild(starIcon);
+      ratingSpan.appendChild(document.createTextNode(comment.starRating));
+      usernameSpan.appendChild(document.createTextNode(' '));
+      usernameSpan.appendChild(ratingSpan);
+    }
     
     commentMeta.appendChild(usernameSpan);
     commentMeta.appendChild(timeSpan);
@@ -218,14 +239,15 @@ async function extractAllPages() {
     progressText.textContent = 'Preparing to extract comments...';
     showStatus('Starting multi-page extraction...', 'success');
     
-    // Clear previous comments
+    // Clear previous comments and DOM
     commentsList.innerHTML = '';
     storedComments = [];
+    commentCount.textContent = '0';
     
-    // Send message to content script to extract from multiple pages (5 pages)
+    // Send message to content script to extract from multiple pages (30 pages)
     chrome.tabs.sendMessage(
       tab.id,
-      { action: "extractMultiPageComments", pages: 5 },
+      { action: "extractMultiPageComments", pages: 30 },
       (response) => {
         if (chrome.runtime.lastError) {
           showStatus('Error communicating with page', 'error');
@@ -248,8 +270,9 @@ async function extractAllPages() {
         
         // Add comments to stored collection
         if (message.comments && message.comments.length > 0) {
-          storedComments = storedComments.concat(message.comments);
-          displayComments(storedComments);
+          // Display with append=true for page after the first one
+          const isFirstPage = message.currentPage === 1;
+          displayComments(message.comments, !isFirstPage);
         }
         
         // If complete, finalize
@@ -268,10 +291,62 @@ async function extractAllPages() {
   }
 }
 
+// Function to download comments as CSV file
+async function downloadCommentsCSV() {
+  if (!storedComments || storedComments.length === 0) {
+    showStatus('No comments to download', 'error');
+    return;
+  }
+  
+  try {
+    // Get the current active tab to get the product URL
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    const sourceUrl = tab ? tab.url : 'Unknown Source';
+    
+    // Get product name from title if possible
+    const productName = tab && tab.title ? tab.title.replace(/ - Shopee.*$/, '') : 'Unknown Product';
+    
+    // Create CSV header
+    let csvContent = "Comment,Username,Timestamp,Rating,Source,Product\n";
+    
+    // Add comment data
+    storedComments.forEach(comment => {
+      // Escape quotes in the comment text and product name
+      const escapedComment = comment.comment.replace(/"/g, '""');
+      const escapedProductName = productName.replace(/"/g, '""');
+      const rating = comment.starRating !== undefined ? comment.starRating : '';
+      
+      // Format CSV row and escape values with quotes to handle commas within fields
+      csvContent += `"${escapedComment}","${comment.username}","${comment.timestamp}","${rating}","${sourceUrl}","${escapedProductName}"\n`;
+    });
+    
+    // Create blob and download link
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const downloadLink = document.createElement('a');
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+    
+    // Set download attributes
+    downloadLink.href = url;
+    downloadLink.setAttribute('download', `shopee-comments-${timestamp}.csv`);
+    
+    // Append link, trigger download, then clean up
+    document.body.appendChild(downloadLink);
+    downloadLink.click();
+    document.body.removeChild(downloadLink);
+    
+    showStatus(`${storedComments.length} comments downloaded as CSV`, 'success');
+  } catch (error) {
+    console.error('Error downloading CSV:', error);
+    showStatus('Failed to download comments', 'error');
+  }
+}
+
 // Event listeners
 saveButton.addEventListener('click', saveApiKey);
 clearButton.addEventListener('click', clearApiKey);
 extractAllButton.addEventListener('click', extractAllPages);
+downloadCsvButton.addEventListener('click', () => downloadCommentsCSV());
 
 // Initialize popup
 document.addEventListener('DOMContentLoaded', () => {
