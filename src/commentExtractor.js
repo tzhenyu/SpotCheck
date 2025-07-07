@@ -12,7 +12,9 @@ const COMMENT_SELECTORS = {
   COMMENT_CONTAINER: '.shopee-product-comment-list',
   PAGINATION_BUTTON: '.shopee-icon-button--right',
   PAGINATION_ACTIVE: '.shopee-page-controller > .shopee-button-solid--primary',
-  STAR_RATING: 'div.rGdC5O'
+  STAR_RATING: 'div.rGdC5O',
+  PAGE_TIMESTAMP: 'div.page-timestamp',  // This is a placeholder, will need to be adjusted
+  PAGE_VARIATION: 'div.page-variation'   // This is a placeholder, will need to be adjusted
 };
 
 // Store accumulated comments across pagination
@@ -33,16 +35,18 @@ function extractCurrentPageComments() {
     if (commentContainer) {
       const commentText = commentElement.textContent.trim();
       const username = extractUsername(commentContainer);
-      const timestamp = extractTimestamp(commentContainer);
+      const timestampData = extractTimestamp(commentContainer);
       const starRating = extractStarRating(commentContainer);
       
       // Create a unique identifier to avoid duplicates when accumulating
-      const commentId = `${username}-${timestamp}-${commentText.substring(0, 20)}`;
+      const commentId = `${username}-${timestampData.raw}-${commentText.substring(0, 20)}`;
       
       const commentData = {
         comment: commentText,
         username: username,
-        timestamp: timestamp,
+        timestamp: timestampData.raw,
+        timestampOnly: timestampData.timestamp,
+        variation: timestampData.variation,
         isCensored: isCensoredUsername(commentContainer),
         starRating: starRating,
         id: commentId
@@ -60,6 +64,13 @@ function extractCurrentPageComments() {
  */
 function accumulateCurrentPageComments() {
   const currentComments = extractCurrentPageComments();
+  const pageMetadata = extractPageMetadata();
+  
+  // Add page metadata to each comment
+  currentComments.forEach(comment => {
+    comment.pageTimestamp = pageMetadata.pageTimestamp;
+    comment.variation = pageMetadata.variation;
+  });
   
   // Add comments to accumulated collection, avoiding duplicates
   currentComments.forEach(comment => {
@@ -85,8 +96,17 @@ async function extractAllComments(resetAccumulated = false) {
     accumulatedComments = [];
   }
   
+  // Extract page metadata
+  const pageMetadata = extractPageMetadata();
+  
   // Add current page comments to accumulated collection
-  accumulateCurrentPageComments();
+  const currentPageComments = accumulateCurrentPageComments();
+  
+  // Add page metadata to each comment
+  currentPageComments.forEach(comment => {
+    comment.pageTimestamp = pageMetadata.pageTimestamp;
+    comment.variation = pageMetadata.variation;
+  });
   
   return accumulatedComments;
 }
@@ -156,11 +176,31 @@ function isCensoredUsername(container) {
 /**
  * Extracts timestamp from a comment container
  * @param {HTMLElement} container - The comment container element
- * @returns {string} The timestamp or 'Unknown time' if not found
+ * @returns {object} Object with timestamp and variation properties
  */
 function extractTimestamp(container) {
   const timestampElement = container.querySelector(COMMENT_SELECTORS.TIMESTAMP);
-  return timestampElement ? timestampElement.textContent.trim() : 'Unknown time';
+  if (!timestampElement) return 'Unknown time';
+  
+  const rawText = timestampElement.textContent.trim();
+  
+  // Use indexOf instead of split to ensure we get the exact index of the delimiter
+  const delimiterIndex = rawText.indexOf('|');
+  
+  if (delimiterIndex !== -1) {
+    return {
+      timestamp: rawText.substring(0, delimiterIndex).trim(),
+      variation: rawText.substring(delimiterIndex + 1).trim(), // Get everything after the | character
+      raw: rawText
+    };
+  }
+  
+  // If no | delimiter found, return the original text as timestamp
+  return {
+    timestamp: rawText,
+    variation: '',
+    raw: rawText
+  };
 }
 
 /**
@@ -187,10 +227,34 @@ function waitForComments(callback) {
   }
 }
 
+/**
+ * Extracts page timestamp and variation information
+ * @returns {Object} Object with pageTimestamp and variation
+ */
+function extractPageMetadata() {
+  let pageTimestampStr = "";
+  let variationStr = "";
+  
+  // Look for text content that matches the timestamp format
+  const bodyText = document.body.innerText;
+  const timestampMatch = bodyText.match(/(\d{4}-\d{2}-\d{2}\s\d{2}:\d{2})\s*\|\s*Variation:\s*([^,\n]+)/);
+  
+  if (timestampMatch && timestampMatch.length >= 3) {
+    pageTimestampStr = timestampMatch[1].trim();
+    variationStr = timestampMatch[2].trim();
+  }
+  
+  return {
+    pageTimestamp: pageTimestampStr,
+    variation: variationStr
+  };
+}
+
 // Export functions to global scope for use in other scripts
 window.CommentExtractor = {
   extractAllComments,
   waitForComments,
   extractStarRating,
+  extractPageMetadata,
   COMMENT_SELECTORS
 };

@@ -307,7 +307,7 @@ async function downloadCommentsCSV() {
     const productName = tab && tab.title ? tab.title.replace(/ - Shopee.*$/, '') : 'Unknown Product';
     
     // Create CSV header
-    let csvContent = "Comment,Username,Timestamp,Rating,Source,Product\n";
+    let csvContent = "Comment,Username,Rating,Source,Product,Page Timestamp\n";
     
     // Add comment data
     storedComments.forEach(comment => {
@@ -316,8 +316,19 @@ async function downloadCommentsCSV() {
       const escapedProductName = productName.replace(/"/g, '""');
       const rating = comment.starRating !== undefined ? comment.starRating : '';
       
+      // Use the directly extracted timestamp and variation properties if available
+      let timestampForCSV = comment.timestampOnly || '';
+      
+      // If the new properties aren't available, fall back to the previous extraction method
+      if (!timestampForCSV && comment.timestamp && comment.timestamp.includes('|')) {
+        const delimiterIndex = comment.timestamp.indexOf('|');
+        if (delimiterIndex !== -1) {
+          timestampForCSV = comment.timestamp.substring(0, delimiterIndex).trim();
+        }
+      }
+      
       // Format CSV row and escape values with quotes to handle commas within fields
-      csvContent += `"${escapedComment}","${comment.username}","${comment.timestamp}","${rating}","${sourceUrl}","${escapedProductName}"\n`;
+      csvContent += `"${escapedComment}","${comment.username}","${rating}","${sourceUrl}","${escapedProductName}","${timestampForCSV}"\n`;
     });
     
     // Create blob and download link
