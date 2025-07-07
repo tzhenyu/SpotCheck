@@ -5,7 +5,10 @@
 
 const SELECTORS = {
   COMMENT_DIV: 'div.YNedDV',
-  COMMENT_LIST: '.shopee-product-comment-list'
+  COMMENT_LIST: '.shopee-product-comment-list',
+  CENSORED_USERNAME: 'div.InK5kS',
+  UNCENSORED_USERNAME: 'a.InK5kS',
+  TIMESTAMP: 'div.XYk98l'
 };
 
 const COLORS = {
@@ -102,6 +105,27 @@ window.ShopeeHelpers = {
   createAnalysisDiv,
   createLoadingOverlay,
   createErrorOverlay,
+  
+  /**
+   * Extract detailed comment data including username and timestamp
+   * @returns {Array<Object>} Array of comment objects with text, username, and timestamp
+   */
+  extractDetailedCommentData() {
+    // Use CommentExtractor if available, otherwise fallback to basic extraction
+    if (window.CommentExtractor) {
+      return window.CommentExtractor.extractAllComments();
+    } else {
+      // Fallback to basic comment extraction
+      const comments = this.extractShopeeCommentTexts();
+      return comments.map(text => ({
+        comment: text,
+        username: 'Unknown user',
+        timestamp: 'Unknown time',
+        isCensored: false
+      }));
+    }
+  },
+  
   SELECTORS,
   COLORS,
   DOM_CLASSES

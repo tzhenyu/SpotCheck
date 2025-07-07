@@ -1,6 +1,6 @@
 /**
  * Popup script for Shopee Comment Extractor
- * Handles API key management through the popup UI
+ * Handles API key management and comment extraction through the popup UI
  */
 
 const API_KEY_STORAGE_KEY = "gemini_api_key";
@@ -9,7 +9,18 @@ const API_KEY_STORAGE_KEY = "gemini_api_key";
 const apiKeyInput = document.getElementById('api-key');
 const saveButton = document.getElementById('save-btn');
 const clearButton = document.getElementById('clear-btn');
+const extractCurrentButton = document.getElementById('extract-current-btn');
+const extractAllButton = document.getElementById('extract-all-btn');
 const statusMessage = document.getElementById('status-message');
+const commentsContainer = document.getElementById('comments-container');
+const commentsList = document.getElementById('comments-list');
+const extractionProgress = document.getElementById('extraction-progress');
+const progressBar = document.getElementById('progress-bar');
+const progressText = document.getElementById('progress-text');
+const commentCount = document.getElementById('comment-count');
+
+// Stored comments
+let storedComments = [];
 
 // Load API key from storage when popup opens
 function loadApiKey() {
@@ -70,9 +81,99 @@ function showStatus(message, type) {
   }, 3000);
 }
 
+// Extract comments from current active tab
+async function extractComments() {
+  try {
+    // Get the current active tab
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    
+    if (!tab) {
+      showStatus('No active tab found', 'error');
+      return;
+    }
+    
+    // Check if we're on a Shopee site
+    const isShopee = tab.url.includes('shopee.');
+    if (!isShopee) {
+      showStatus('Not on a Shopee page', 'error');
+      return;
+    }
+    
+    showStatus('Extracting comments...', 'success');
+    
+    // Execute script to get comments from the content script
+    chrome.tabs.sendMessage(
+      tab.id, 
+      { action: "extractComments" }, 
+      (response) => {
+        if (chrome.runtime.lastError) {
+          showStatus('Error communicating with page', 'error');
+          console.error(chrome.runtime.lastError);
+          return;
+        }
+        
+        if (response && response.comments) {
+          displayComments(response.comments);
+        } else {
+          showStatus('No comments found or extraction failed', 'error');
+        }
+      }
+    );
+  } catch (error) {
+    console.error('Failed to extract comments:', error);
+    showStatus('Failed to extract comments', 'error');
+  }
+}
+
+// Display comments in the popup
+function displayComments(comments) {
+  if (!comments || comments.length === 0) {
+    showStatus('No comments found', 'error');
+    return;
+  }
+  
+  // Clear previous comments
+  commentsList.innerHTML = '';
+  
+  // Add each comment to the list
+  comments.forEach(comment => {
+    const commentItem = document.createElement('div');
+    commentItem.className = 'comment-item';
+    
+    const commentMeta = document.createElement('div');
+    commentMeta.className = 'comment-meta';
+    
+    const usernameSpan = document.createElement('span');
+    usernameSpan.className = comment.isCensored ? 'username censored' : 'username';
+    usernameSpan.textContent = comment.username;
+    
+    const timeSpan = document.createElement('span');
+    timeSpan.className = 'timestamp';
+    timeSpan.textContent = comment.timestamp;
+    
+    commentMeta.appendChild(usernameSpan);
+    commentMeta.appendChild(timeSpan);
+    
+    const commentText = document.createElement('div');
+    commentText.className = 'comment-text';
+    commentText.textContent = comment.comment;
+    
+    commentItem.appendChild(commentMeta);
+    commentItem.appendChild(commentText);
+    
+    commentsList.appendChild(commentItem);
+  });
+  
+  // Show the comments container
+  commentsContainer.classList.remove('hidden');
+  showStatus(`${comments.length} comments extracted`, 'success');
+}
+
 // Event listeners
 saveButton.addEventListener('click', saveApiKey);
 clearButton.addEventListener('click', clearApiKey);
+extractCurrentButton.addEventListener('click', extractComments);
+extractAllButton.addEventListener('click', extractComments);
 
 // Initialize popup
 document.addEventListener('DOMContentLoaded', loadApiKey);

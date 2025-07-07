@@ -92,6 +92,65 @@
   
   <div id="status-message" class="status hidden"></div>
   
+  <div class="buttons extraction-buttons">
+    <button id="extract-current-btn">Extract Current Page</button>
+    <button id="extract-all-btn">Extract All Pages</button>
+  </div>
+  
+  <div id="extraction-progress" class="hidden">
+    <div class="progress-bar-container">
+      <div class="progress-bar" id="progress-bar"></div>
+    </div>
+    <div id="progress-text">Extracting comments...</div>
+  </div>
+  
+  <div id="comments-container" class="hidden">
+    <h2>Extracted Comments (<span id="comment-count">0</span>)</h2>
+    <div id="comments-list">
+      <!-- Comments will be inserted here -->
+    </div>
+  </div>
+  
+  <style>
+    #comments-container {
+      margin-top: 20px;
+      border-top: 1px solid #eee;
+      padding-top: 10px;
+    }
+    
+    #comments-list {
+      max-height: 300px;
+      overflow-y: auto;
+    }
+    
+    .comment-item {
+      padding: 10px;
+      margin-bottom: 10px;
+      border: 1px solid #eee;
+      border-radius: 4px;
+    }
+    
+    .comment-text {
+      margin-top: 5px;
+    }
+    
+    .comment-meta {
+      font-size: 12px;
+      color: #666;
+      display: flex;
+      justify-content: space-between;
+    }
+    
+    .censored {
+      color: #f44336;
+    }
+    
+    h2 {
+      font-size: 16px;
+      margin-top: 0;
+    }
+  </style>
+  
   <script src="popup.js"></script>
 </body>
 </html>

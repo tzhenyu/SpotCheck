@@ -240,5 +240,34 @@ function waitForCommentsSection() {
   observer.observe(document.body, { childList: true, subtree: true });
 }
 
+// Listen for messages from popup
+chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+  if (request.action === "extractComments") {
+    try {
+      // Use CommentExtractor if available, otherwise fallback to basic extraction
+      if (window.CommentExtractor) {
+        // Handle async extraction
+        window.CommentExtractor.extractAllComments(false).then(extractedComments => {
+          sendResponse({ comments: extractedComments });
+        }).catch(error => {
+          console.error("Error extracting comments:", error);
+          sendResponse({ error: true, message: error.message });
+        });
+      } else if (window.ShopeeHelpers) {
+        // Fallback to synchronous method
+        const extractedComments = window.ShopeeHelpers.extractDetailedCommentData();
+        sendResponse({ comments: extractedComments });
+      } else {
+        console.error("Comment extraction tools not available");
+        sendResponse({ error: true, message: "Comment extraction tools not available" });
+      }
+    } catch (error) {
+      console.error("Error extracting comments:", error);
+      sendResponse({ error: true, message: error.message });
+    }
+    return true; // Keep the message channel open for async response
+  }
+});
+
 // Start the watcher
 waitForCommentsSection();
