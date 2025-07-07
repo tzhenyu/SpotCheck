@@ -1,8 +1,8 @@
 import pandas as pd
 import re
 
-CSV_FILE_PATH = "PythonIguess/shopee_reviews.csv"
-OUTPUT_CSV_PATH = "PythonIguess/shopee_reviews_no_label.csv"
+CSV_FILE_PATH = "/home/jon/Downloads/shopee_reviews.csv"
+OUTPUT_CSV_PATH = "pythonScript/shopee_reviews_no_label.csv"
 MAX_ROWS = 10000
 
 # Enhanced emoji pattern to catch more variations
