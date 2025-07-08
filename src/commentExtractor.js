@@ -375,18 +375,18 @@ function handleUrlChange(message) {
     }
     
     // Show notification in the page
-    const notificationDiv = document.createElement('div');
-    notificationDiv.style.position = 'fixed';
-    notificationDiv.style.bottom = '20px';
-    notificationDiv.style.right = '20px';
-    notificationDiv.style.padding = '10px 15px';
-    notificationDiv.style.backgroundColor = '#4CAF50';
-    notificationDiv.style.color = 'white';
-    notificationDiv.style.borderRadius = '5px';
-    notificationDiv.style.zIndex = '10000';
-    notificationDiv.style.boxShadow = '0 2px 5px rgba(0,0,0,0.2)';
-    notificationDiv.textContent = `Uploading ${commentsToUpload.length} comments...`;
-    document.body.appendChild(notificationDiv);
+    // const notificationDiv = document.createElement('div');
+    // notificationDiv.style.position = 'fixed';
+    // notificationDiv.style.bottom = '20px';
+    // notificationDiv.style.right = '20px';
+    // notificationDiv.style.padding = '10px 15px';
+    // notificationDiv.style.backgroundColor = '#4CAF50';
+    // notificationDiv.style.color = 'white';
+    // notificationDiv.style.borderRadius = '5px';
+    // notificationDiv.style.zIndex = '10000';
+    // notificationDiv.style.boxShadow = '0 2px 5px rgba(0,0,0,0.2)';
+    // notificationDiv.textContent = `Uploading ${commentsToUpload.length} comments...`;
+    // document.body.appendChild(notificationDiv);
     
     // Send to background script to make API call
     chrome.runtime.sendMessage({
@@ -397,13 +397,13 @@ function handleUrlChange(message) {
       console.log("Comment upload response:", response);
       
       // Update notification
-      if (response && response.success) {
-        notificationDiv.textContent = `Successfully uploaded ${commentsToUpload.length} comments`;
-        notificationDiv.style.backgroundColor = '#4CAF50'; // Green
-      } else {
-        notificationDiv.textContent = 'Failed to upload comments';
-        notificationDiv.style.backgroundColor = '#F44336'; // Red
-      }
+      // if (response && response.success) {
+      //   notificationDiv.textContent = `Successfully uploaded ${commentsToUpload.length} comments`;
+      //   notificationDiv.style.backgroundColor = '#4CAF50'; // Green
+      // } else {
+      //   notificationDiv.textContent = 'Failed to upload comments';
+      //   notificationDiv.style.backgroundColor = '#F44336'; // Red
+      // }
       
       // Remove notification after a delay
       setTimeout(() => {
