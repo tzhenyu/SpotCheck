@@ -8,12 +8,21 @@ import asyncio
 from google import genai
 import os
 from dotenv import load_dotenv
+import psycopg2
+from psycopg2.extras import RealDictCursor
 
 
 # Load environment variables from .env file
 load_dotenv()
 
-
+# Database configuration
+DB_CONFIG = {
+    "database": "futurehack",
+    "host": "100.97.20.73",
+    "user": "zhenyu",
+    "password": "123123",
+    "port": "5432"
+}
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -32,6 +41,7 @@ gemini_model = "gemini-2.0-flash"
 # Create data models
 class CommentData(BaseModel):
     comments: List[str]
+    metadata: List[Dict] = None
 
 # Create FastAPI application
 app = FastAPI()
@@ -163,8 +173,97 @@ async def analyze_comments_batch(comments: List[str]) -> List[Dict]:
             for comment in comments
         ]
 
+def get_db_connection():
+    """Establish a connection to the PostgreSQL database"""
+    try:
+        conn = psycopg2.connect(
+            database=DB_CONFIG["database"],
+            host=DB_CONFIG["host"],
+            user=DB_CONFIG["user"],
+            password=DB_CONFIG["password"],
+            port=DB_CONFIG["port"],
+            cursor_factory=RealDictCursor  # Returns results as dictionaries
+        )
+        return conn
+    except Exception as e:
+        logger.error(f"Database connection error: {str(e)}")
+        raise
+
+@app.get("/upload")
+async def upload_data():
+    """Endpoint to fetch authors from the database"""
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM authors;")
+        results = cursor.fetchall()
+        cursor.close()
+        conn.close()
+        return {"message": "Data retrieved successfully", "authors": results}
+    except Exception as e:
+        logger.error(f"Error fetching authors: {str(e)}")
+        return JSONResponse(
+            status_code=500,
+            content={"message": f"Database error: {str(e)}"}
+        )
+
 @app.post("/comments")
 async def process_comments(data: CommentData):
+    """Store comments from Shopee in PostgreSQL database"""
+    logger.info(f"Received {len(data.comments)} comments")
+    
+    # Only store metadata if provided, without Gemini processing
+    if data.metadata and len(data.metadata) > 0:
+        logger.info(f"Storing {len(data.metadata)} comments in database")
+        try:
+            conn = get_db_connection()
+            cursor = conn.cursor()
+            
+            # Create a more efficient bulk insert
+            insert_values = []
+            for item in data.metadata:
+                insert_values.append((
+                    item.get('comment'), 
+                    item.get('username'), 
+                    item.get('rating'), 
+                    item.get('source'), 
+                    item.get('product'), 
+                    item.get('timestamp')
+                ))
+            
+            # Use executemany for better performance with large datasets
+            cursor.executemany(
+                """
+                INSERT INTO product_reviews (comment, username, rating, source, product, page_timestamp)
+                VALUES (%s, %s, %s, %s, %s, %s)
+                ON CONFLICT DO NOTHING
+                """, 
+                insert_values
+            )
+            
+            conn.commit()
+            cursor.close()
+            conn.close()
+            logger.info(f"Successfully stored {len(insert_values)} comments in database")
+            
+            return {
+                "message": f"Successfully stored {len(insert_values)} comments in database", 
+                "total_stored": len(insert_values)
+            }
+        except Exception as e:
+            logger.error(f"Database error storing comments: {str(e)}")
+            return JSONResponse(
+                status_code=500,
+                content={"message": f"Database error: {str(e)}"}
+            )
+    else:
+        return {
+            "message": "No metadata provided for storage", 
+            "total_stored": 0
+        }
+
+@app.post("/analyze")
+async def analyze_comments(data: CommentData):
     """Process comments from Shopee with Gemini API"""
     logger.info(f"Received {len(data.comments)} comments")
     
@@ -188,6 +287,7 @@ async def process_comments(data: CommentData):
         "message": f"Processed {len(results)} comments", 
         "results": results
     }
+
 
 if __name__ == "__main__":
     import uvicorn

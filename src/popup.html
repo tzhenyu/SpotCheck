@@ -184,6 +184,21 @@
     .extraction-buttons {
       margin-top: 16px;
     }
+    
+    .comment-actions {
+      display: flex;
+      gap: 8px;
+    }
+    
+    #upload-sql-btn {
+      font-size: 12px;
+      padding: 4px 8px;
+      background-color: #28a745;
+    }
+    
+    #upload-sql-btn:hover {
+      background-color: #218838;
+    }
   </style>
 </head>
 <body>
@@ -215,7 +230,10 @@
   <div id="comments-container" class="hidden">
     <div class="comments-header">
       <h2>Extracted Comments (<span id="comment-count">0</span>)</h2>
-      <button id="download-csv-btn" class="secondary">Download CSV</button>
+      <div class="comment-actions">
+        <button id="upload-sql-btn" class="secondary">Upload to SQL Server</button>
+        <button id="download-csv-btn" class="secondary">Download CSV</button>
+      </div>
     </div>
     <div id="comments-list">
       <!-- Comments will be inserted here -->

@@ -13,8 +13,6 @@ const COMMENT_SELECTORS = {
   PAGINATION_BUTTON: '.shopee-icon-button--right',
   PAGINATION_ACTIVE: '.shopee-page-controller > .shopee-button-solid--primary',
   STAR_RATING: 'div.rGdC5O',
-  PAGE_TIMESTAMP: 'div.page-timestamp',  // This is a placeholder, will need to be adjusted
-  PAGE_VARIATION: 'div.page-variation'   // This is a placeholder, will need to be adjusted
 };
 
 // Store accumulated comments across pagination

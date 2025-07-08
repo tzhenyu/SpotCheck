@@ -4,6 +4,8 @@
  */
 
 const API_KEY_STORAGE_KEY = "gemini_api_key";
+// Add the backend API URL constant
+const BACKEND_API_URL = "http://localhost:8000";
 
 // DOM Elements
 const apiKeyInput = document.getElementById('api-key');
@@ -18,6 +20,7 @@ const extractionProgress = document.getElementById('extraction-progress');
 const progressBar = document.getElementById('progress-bar');
 const progressText = document.getElementById('progress-text');
 const commentCount = document.getElementById('comment-count');
+const uploadSqlButton = document.getElementById('upload-sql-btn');
 
 // Stored comments
 let storedComments = [];
@@ -353,11 +356,170 @@ async function downloadCommentsCSV() {
   }
 }
 
+// Function to upload comments to SQL server via FastAPI
+async function uploadCommentsToSql() {
+  if (!storedComments || storedComments.length === 0) {
+    showStatus('No comments to download', 'error');
+    return;
+  }
+  
+  try {
+    showStatus('Uploading comments to server...', 'success');
+    
+    // Get the current active tab to get the product URL and name
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    const sourceUrl = tab ? tab.url : 'Unknown Source';
+    const productName = tab && tab.title ? tab.title.replace(/ - Shopee.*$/, '') : 'Unknown Product';
+    
+    // Prepare complete data for upload with all fields for all comments
+    const commentsForUpload = storedComments.map(comment => {
+      // Use same logic as downloadCommentsCSV
+      const rating = comment.starRating !== undefined ? comment.starRating : '';
+      
+      // Use the directly extracted timestamp properties if available
+      let timestampForCSV = comment.timestampOnly || '';
+      
+      // If the new properties aren't available, fall back to the previous extraction method
+      if (!timestampForCSV && comment.timestamp && comment.timestamp.includes('|')) {
+        const delimiterIndex = comment.timestamp.indexOf('|');
+        if (delimiterIndex !== -1) {
+          timestampForCSV = comment.timestamp.substring(0, delimiterIndex).trim();
+        }
+      }
+      
+      return {
+        comment: comment.comment,
+        username: comment.username,
+        rating: rating,
+        source: sourceUrl,
+        product: productName,
+        timestamp: timestampForCSV
+      };
+    });
+    
+    // We'll use a batch size to avoid overloading the server
+    const BATCH_SIZE = 100;
+    let processedCount = 0;
+    
+    // Process in batches if we have many comments
+    for (let i = 0; i < commentsForUpload.length; i += BATCH_SIZE) {
+      const batchComments = commentsForUpload.slice(i, i + BATCH_SIZE);
+      
+      // Update progress for large uploads
+      if (commentsForUpload.length > BATCH_SIZE) {
+        showStatus(`Uploading batch ${Math.floor(i/BATCH_SIZE) + 1}/${Math.ceil(commentsForUpload.length/BATCH_SIZE)}...`, 'success');
+      }
+      
+      // Send data to FastAPI backend
+      const response = await fetch(`${BACKEND_API_URL}/comments`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ 
+          comments: batchComments.map(c => c.comment),
+          metadata: batchComments
+        })
+      });
+      
+      if (!response.ok) {
+        throw new Error(`HTTP error! Status: ${response.status}`);
+      }
+      
+      const result = await response.json();
+      
+      // Check for server-side errors
+      if (result.error) {
+        throw new Error(result.error);
+      }
+      
+      // Track progress
+      processedCount += batchComments.length;
+    }
+    
+    showStatus(`Successfully uploaded ${commentsForUpload.length} comments to database`, 'success');
+  } catch (error) {
+    console.error('Error uploading comments:', error);
+    showStatus(`Upload failed: ${error.message}`, 'error');
+  }
+}
+
+// Function to update displayed comments with analysis results
+// Modified to handle batch processing with offset
+function updateCommentsWithAnalysis(results, offset = 0) {
+  if (!results || results.length === 0) return;
+  
+  // Find all comment items in the DOM
+  const commentItems = document.querySelectorAll('.comment-item');
+  
+  // Match results with displayed comments
+  for (let i = 0; i < results.length; i++) {
+    const result = results[i];
+    // Get the correct comment based on offset
+    const commentIndex = offset + i;
+    if (commentIndex >= commentItems.length) continue;
+    
+    const commentItem = commentItems[commentIndex];
+    
+    // Create or update analysis info
+    let analysisDiv = commentItem.querySelector('.analysis-info');
+    if (!analysisDiv) {
+      analysisDiv = document.createElement('div');
+      analysisDiv.className = 'analysis-info';
+      commentItem.appendChild(analysisDiv);
+    }
+    
+    // Set analysis content
+    const isFakeClass = result.is_fake ? 'fake-comment' : 'real-comment';
+    analysisDiv.innerHTML = `
+      <div class="analysis-result ${isFakeClass}">
+        <strong>${result.is_fake ? '⚠️ FAKE' : '✓ REAL'}</strong>: 
+        ${result.explanation}
+      </div>
+    `;
+    
+    // Add corresponding styling
+    if (result.is_fake) {
+      commentItem.classList.add('fake-comment-item');
+    } else {
+      commentItem.classList.add('real-comment-item');
+    }
+  }
+  
+  // Add CSS for these new elements if not already added
+  if (!document.getElementById('analysis-styles')) {
+    const style = document.createElement('style');
+    style.id = 'analysis-styles';
+    style.textContent = `
+      .analysis-info {
+        margin-top: 8px;
+        padding-top: 8px;
+        border-top: 1px dashed #ddd;
+        font-size: 13px;
+      }
+      .fake-comment {
+        color: #d32f2f;
+      }
+      .real-comment {
+        color: #388e3c;
+      }
+      .fake-comment-item {
+        border-left: 3px solid #d32f2f;
+      }
+      .real-comment-item {
+        border-left: 3px solid #388e3c;
+      }
+    `;
+    document.head.appendChild(style);
+  }
+}
+
 // Event listeners
 saveButton.addEventListener('click', saveApiKey);
 clearButton.addEventListener('click', clearApiKey);
 extractAllButton.addEventListener('click', extractAllPages);
 downloadCsvButton.addEventListener('click', () => downloadCommentsCSV());
+uploadSqlButton.addEventListener('click', uploadCommentsToSql);
 
 // Initialize popup
 document.addEventListener('DOMContentLoaded', () => {
