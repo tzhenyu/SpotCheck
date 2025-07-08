@@ -6,9 +6,8 @@
 const API_KEY_STORAGE_KEY = "gemini_api_key";
 // Add the backend API URL constant
 const BACKEND_API_URL = "http://localhost:8000";
-// Auto-extract setting storage key
+// Auto features are always enabled (no toggles)
 const AUTO_EXTRACT_STORAGE_KEY = "auto_extract_enabled";
-// Auto-upload setting storage key
 const AUTO_UPLOAD_STORAGE_KEY = "auto_upload_enabled";
 
 // DOM Elements
@@ -25,8 +24,6 @@ const progressBar = document.getElementById('progress-bar');
 const progressText = document.getElementById('progress-text');
 const commentCount = document.getElementById('comment-count');
 const uploadSqlButton = document.getElementById('upload-sql-btn');
-const autoExtractToggle = document.getElementById('auto-extract-toggle');
-const autoUploadToggle = document.getElementById('auto-upload-toggle');
 
 // Stored comments
 let storedComments = [];
@@ -78,33 +75,18 @@ function loadApiKey() {
   }
 }
 
-// Load auto-extract setting from storage
-function loadAutoExtractSetting() {
+// Set auto-extract to always be enabled
+function ensureAutoFeaturesEnabled() {
   try {
-    chrome.storage.local.get([AUTO_EXTRACT_STORAGE_KEY], (result) => {
-      // Default to true if not set (null check is important)
-      const isEnabled = result[AUTO_EXTRACT_STORAGE_KEY] !== false;
-      autoExtractToggle.checked = isEnabled;
+    // Always set both auto features to true
+    chrome.storage.local.set({ 
+      [AUTO_EXTRACT_STORAGE_KEY]: true,
+      [AUTO_UPLOAD_STORAGE_KEY]: true 
+    }, () => {
+      console.log('Auto-extract and auto-upload features are enabled');
     });
   } catch (error) {
-    console.error('Failed to load auto-extract setting:', error);
-    // Default to true if there's an error
-    autoExtractToggle.checked = true;
-  }
-}
-
-// Load auto-upload setting from storage
-function loadAutoUploadSetting() {
-  try {
-    chrome.storage.local.get([AUTO_UPLOAD_STORAGE_KEY], (result) => {
-      // Default to true if not set (null check is important)
-      const isEnabled = result[AUTO_UPLOAD_STORAGE_KEY] !== false;
-      autoUploadToggle.checked = isEnabled;
-    });
-  } catch (error) {
-    console.error('Failed to load auto-upload setting:', error);
-    // Default to true if there's an error
-    autoUploadToggle.checked = true;
+    console.error('Error ensuring auto features are enabled:', error);
   }
 }
 
@@ -617,56 +599,7 @@ function updateCommentsWithAnalysis(results, offset = 0) {
   }
 }
 
-// Save auto-extract setting to storage and notify content scripts
-function saveAutoExtractSetting(isEnabled) {
-  try {
-    chrome.storage.local.set({ [AUTO_EXTRACT_STORAGE_KEY]: isEnabled }, () => {
-      console.log(`Auto-extract ${isEnabled ? 'enabled' : 'disabled'}`);
-      
-      // Notify any active content scripts about the setting change
-      chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-        if (tabs[0] && tabs[0].url && tabs[0].url.includes('shopee.')) {
-          try {
-            chrome.tabs.sendMessage(
-              tabs[0].id,
-              { action: "updateAutoExtractSetting", isEnabled: isEnabled },
-              (response) => {
-                if (chrome.runtime.lastError) {
-                  console.log("Content script not ready for setting update");
-                }
-              }
-            );
-          } catch (error) {
-            console.error('Error notifying content script:', error);
-          }
-        }
-      });
-    });
-  } catch (error) {
-    console.error('Failed to save auto-extract setting:', error);
-  }
-}
-
-// Save auto-upload setting to storage and notify background script
-function saveAutoUploadSetting(isEnabled) {
-  try {
-    chrome.storage.local.set({ [AUTO_UPLOAD_STORAGE_KEY]: isEnabled }, () => {
-      console.log(`Auto-upload ${isEnabled ? 'enabled' : 'disabled'}`);
-      
-      // Notify background script about the setting change
-      chrome.runtime.sendMessage(
-        { action: "updateAutoUploadSetting", isEnabled: isEnabled },
-        (response) => {
-          if (chrome.runtime.lastError) {
-            console.log("Background script not ready for setting update");
-          }
-        }
-      );
-    });
-  } catch (error) {
-    console.error('Failed to save auto-upload setting:', error);
-  }
-}
+// Nothing needed to replace the removed toggle functions
 
 // Event listeners
 saveButton.addEventListener('click', saveApiKey);
@@ -674,17 +607,11 @@ clearButton.addEventListener('click', clearApiKey);
 extractAllButton.addEventListener('click', extractAllPages);
 downloadCsvButton.addEventListener('click', () => downloadCommentsCSV());
 uploadSqlButton.addEventListener('click', uploadCommentsToSql);
-autoExtractToggle.addEventListener('change', (e) => {
-  saveAutoExtractSetting(e.target.checked);
-});
-autoUploadToggle.addEventListener('change', (e) => {
-  saveAutoUploadSetting(e.target.checked);
-});
 
 // Initialize popup
 document.addEventListener('DOMContentLoaded', () => {
   loadApiKey();
-  loadAutoExtractSetting();
+  ensureAutoFeaturesEnabled();
   
   // Listen for URL change messages from background script
   chrome.runtime.onMessage.addListener((message) => {

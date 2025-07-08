@@ -316,7 +316,7 @@ function formatCommentsForUpload() {
     rating: c.starRating || 0,
     source: source,
     product: productTitle,
-    timestamp: c.timestamp || new Date().toISOString()
+    timestamp: c.timestampOnly || new Date().toISOString()
   }));
   
   return {
