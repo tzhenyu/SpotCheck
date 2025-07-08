@@ -9,8 +9,11 @@ from google import genai
 import os
 from dotenv import load_dotenv
 
+
 # Load environment variables from .env file
 load_dotenv()
+
+
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -59,12 +62,6 @@ async def root():
     response = JSONResponse({"status": "API is running"})
     response.headers["Access-Control-Allow-Origin"] = "*"
     return response
-
-@app.get("/test")
-async def test_endpoint():
-    """Test endpoint that prints 'hi' to console"""
-    logger.info("Test endpoint called")
-    return {"message": "Test endpoint called"}
 
 async def analyze_comment_with_gemini(comment: str) -> Dict:
     """Process a single comment with Gemini API"""
