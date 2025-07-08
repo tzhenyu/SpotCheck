@@ -1,89 +1,54 @@
-# Project Title & Tagline
-Awesome Hackathon Project 🚀  
-_A short, catchy description goes here._
+### I need y'all help: Scrape some data for behavioral analysis
 
+Scope:
+- Shopee
+- Shirts category
+- Each member extract comment on 15 different products
 
+#### Set up Tailscale
+1. Install tailscale, google it yourself
+2. Join this https://login.tailscale.com/uinv/i1db424acee175eca. Make sure you login with the same account as the client.
+#### Git Pull
+1. Commit your branch to prevent any loss, better if push
+2. In GitHub, change to the branch "feature_relational_database"
+```Source Control > Repository > a branch name```
 
-## Demo Link & Screenshots
+```Click that branch name, click "origin/feature_relational_database"```
 
-- **Live Demo:** [https://demo-link.com](https://demo-link.com)
-- **Video/GIFs/Screenshots:**  
-  ![Demo Screenshot](./assets/demo-screenshot.png)
+2. Git pull it
 
-
-## Introduction
-
-Brief overview of the project and its purpose.  
-_What problem does it solve? Who is it for?_
-
-
-
-## Features
-
-- Feature 1: Describe key feature
-- Feature 2: Another important functionality
-- Feature 3: Something else cool
-
-
-
-## How It Works / Architecture
-
-Short explanation of how the project works.  
-_High-level diagram below (if available):_
-
+#### Open the backend server
+1. in the Terimnal:
+```bash 
+pip install -r requirements.txt
+python ./backend/backend.py
 ```
-[ User ] --> [ Frontend ] --> [ Backend ] --> [ Database ]
+If it look like this below, you did it correct.
+```
+> python ./backend/backend.py
+INFO:__main__:Starting API server on http://127.0.0.1:8000
+INFO:     Started server process [41750]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
 ```
 
+#### Install the extension 
+1. Go to your browser settings > extension
+2. enable developer mode
+3. press load unpacked, it will prompt you to open folder (if cant find it just google it yourself)
+4. load the "src" folder from this git repo
+5. The extension should be installed in your browser.
+6. Pin it on your toolbar, convenient for you
 
-## Tech Stack
+#### Scrape the data 
+1. Go to any shopee product webpage
+2. The product ratings section can choose what comment you want, choose "With Comments" 
+3. Click the extension from toolbar, it should show "6 comments extracted"
+4. Click the "extract all pages (30)" buttons
+5. it will automatically navigate comment page, let it sit, dont do anything
+6. After it stopped, means its done. 
+8. There's a "upload to sql server" button. Click it
+9. If there's a successful message, you are done!
 
-- Frontend: React
-- Backend: Node.js, Express
-- Database: MongoDB
-- Other: Docker, AWS S3
-
-
-
-## Getting Started
-
-### Prerequisites
-
-- Node.js >= 18.x
-- Docker (optional)
-
-### Installation
-
-```bash
-git clone https://github.com/your-username/hackathon-project.git
-cd hackathon-project
-npm install
-```
-
-### Running the Project
-
-```bash
-# Start the development server
-npm run dev
-
-# (Optional) Using Docker
-docker compose up
-```
-
-
-
-## Usage
-
-- Access the main dashboard at `http://localhost:3000`
-- API endpoint example:  
-  `GET /api/items`
-- CLI command example:  
-  `npm run custom-script`
-
-
-
-## Team / Contributors
-
-- **Alice Smith** ([alicegithub](https://github.com/alicegithub)) – Frontend
-- **Bob Lee** ([boblee](https://github.com/boblee)) – Backend
-- **Charlie Kim** ([charliekim](https://github.com/charliekim)) – DevOps
+#### Repeat it for 15 different pages

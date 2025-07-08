@@ -1,13 +1,22 @@
 const API_BASE_URL = "http://127.0.0.1:8000";
-const API_TIMEOUT_MS = 5000;
+const DEBOUNCE_DELAY = 500;
 
-async function callTestEndpoint() {
+// Track already analyzed comments to avoid duplicate API calls and store results
+let analyzedComments = new Map(); // Changed from Set to Map to store results
+let isApiCallInProgress = false;
+let apiCallTimer = null;
+
+async function callTestEndpoint(comments) {
   try {
-    console.log("Sending API request to background script...");
+    console.log("Sending comments to background script...");
     
     return new Promise((resolve) => {
       chrome.runtime.sendMessage(
-        { action: "callAPI", endpoint: "test" },
+        { 
+          action: "callAPI", 
+          endpoint: "comments",
+          data: { comments }
+        },
         (response) => {
           console.log("Received response from background script:", response);
           if (response && response.success) {
@@ -27,97 +36,306 @@ async function callTestEndpoint() {
   }
 }
 
-function extractShopeeCommentTexts() {
-  return Array.from(document.querySelectorAll('div.YNedDV'))
-    .map(el => el.textContent.trim());
+// Function to analyze comments using DirectGeminiAPI
+async function analyzeCommentsWithGemini(comments, productName = null) {
+  try {
+    console.log("Analyzing comments with Gemini API...");
+    
+    // Check for stored API key
+    const apiKey = await window.DirectGeminiAPI.getStoredApiKey();
+    
+    // If no API key is found, return error
+    if (!apiKey) {
+      return {
+        error: true,
+        message: "API key is required for Gemini analysis. Please set it in the extension popup."
+      };
+    }
+    
+    // Call Gemini API to analyze comments
+    const result = await window.DirectGeminiAPI.analyzeCommentsDirectly(comments, apiKey, productName);
+    return result;
+  } catch (error) {
+    console.error("Error analyzing with Gemini:", error);
+    return { message: `Gemini Analysis Error: ${error.message}`, error: true };
+  }
+}
+
+function displayResultsInComments(results) {
+  if (!results || !results.results || results.results.length === 0) return;
+  
+  try {
+    // Set flag to prevent observer from responding to our DOM changes
+    window.isUpdatingCommentDOM = true;
+    
+    const commentDivs = document.querySelectorAll(ShopeeHelpers.SELECTORS.COMMENT_DIV);
+    if (commentDivs.length !== results.results.length) {
+      console.error("Comment count mismatch:", commentDivs.length, results.results.length);
+      return;
+    }
+    
+    results.results.forEach((result, idx) => {
+      if (idx >= commentDivs.length) return;
+      
+      const commentDiv = commentDivs[idx];
+      const analysisDiv = ShopeeHelpers.createAnalysisDiv(result);
+      
+      // Remove any previously added analysis
+      const existingAnalysis = commentDiv.querySelector(`.${ShopeeHelpers.DOM_CLASSES.COMMENT_ANALYSIS}`);
+      if (existingAnalysis) existingAnalysis.remove();
+      
+      commentDiv.appendChild(analysisDiv);
+    });
+  } finally {
+    // Always reset the flag when done
+    setTimeout(() => {
+      window.isUpdatingCommentDOM = false;
+    }, 100);
+  }
 }
 
 function showCommentsOverlay(comments) {
+  // Don't process if no comments
+  if (!comments.length) return;
+  
+  // Check if these comments have already been processed
+  const commentsHash = comments.join('|');
+  
+  // If already analyzed, display the cached results and return
+  if (analyzedComments.has(commentsHash)) {
+    displayResultsInComments(analyzedComments.get(commentsHash));
+    return;
+  }
+  
+  // Don't proceed if an API call is already in progress
+  if (isApiCallInProgress) return;
+  
+  // Mark as in progress
+  isApiCallInProgress = true;
+  
+  // Flag to track if we're making DOM changes to prevent observer loop
+  window.isUpdatingCommentDOM = true;
+
   // Remove previous overlay if exists
   let logDiv = document.getElementById('shopee-comments-overlay');
   if (logDiv) logDiv.remove();
 
-  // Create new overlay
-  logDiv = document.createElement('div');
-  logDiv.id = 'shopee-comments-overlay';
-  logDiv.style.position = 'fixed';
-  logDiv.style.bottom = '0';
-  logDiv.style.left = '0';
-  logDiv.style.width = '100vw';
-  logDiv.style.maxHeight = '200px';
-  logDiv.style.overflowY = 'auto';
-  logDiv.style.background = 'rgba(0,0,0,0.8)';
-  logDiv.style.color = '#0f0';
-  logDiv.style.fontFamily = 'monospace';
-  logDiv.style.zIndex = '999999';
-  logDiv.style.fontSize = '12px';
-  logDiv.style.padding = '5px';
-  logDiv.innerHTML = '<b>Shopee Comments:</b><br>';
-
-  comments.forEach((comment, idx) => {
-    const div = document.createElement('div');
-    div.textContent = `${idx + 1}. ${comment}`;
-    logDiv.appendChild(div);
-  });
-
+  // Create new overlay for loading indication using helper
+  logDiv = ShopeeHelpers.createLoadingOverlay();
   document.body.appendChild(logDiv);
   
-  // Add a "loading" message for API call
-  const apiLoadingDiv = document.createElement('div');
-  apiLoadingDiv.id = 'api-loading';
-  apiLoadingDiv.style.marginTop = '10px';
-  apiLoadingDiv.style.color = '#fff';
-  apiLoadingDiv.textContent = 'Connecting to API...';
-  logDiv.appendChild(apiLoadingDiv);
+  // Get product name
+  let productName = null;
+  const productNameElement = document.querySelector('h1.vR6K3w');
+  if (productNameElement) {
+    productName = productNameElement.textContent.trim();
+  }
   
-  // Call the test endpoint when showing comments
-  callTestEndpoint().then(result => {
-    const loadingDiv = document.getElementById('api-loading');
-    if (loadingDiv) loadingDiv.remove();
-    
-    const apiResultDiv = document.createElement('div');
-    apiResultDiv.style.marginTop = '10px';
-    apiResultDiv.style.color = result.error ? '#f55' : '#ff0';
+  // Call Gemini API instead of server API
+  analyzeCommentsWithGemini(comments, productName).then(result => {
+    // Remove loading overlay when done
+    logDiv.remove();
+    isApiCallInProgress = false;
     
     if (result.error) {
-      apiResultDiv.innerHTML = `<b>API Error:</b> ${result.message}`;
+      // Check if it's an API key issue
+      if (result.message.includes("API key")) {
+        // Show notification about setting API key in popup
+        const errorDiv = ShopeeHelpers.createErrorOverlay("Please set your Gemini API key in the extension popup.");
+        // document.body.appendChild(errorDiv);
+        
+        // Remove error after 5 seconds
+        setTimeout(() => {
+          if (errorDiv && errorDiv.parentNode) {
+            errorDiv.parentNode.removeChild(errorDiv);
+          }
+        }, 5000);
+      } else {
+        // Show error in small overlay using helper
+        const errorDiv = ShopeeHelpers.createErrorOverlay(result.message);
+        document.body.appendChild(errorDiv);
+        
+        // Remove error after 5 seconds
+        setTimeout(() => {
+          if (errorDiv.parentNode) errorDiv.remove();
+        }, 5000);
+      }
     } else {
-      apiResultDiv.textContent = `API Response: ${result.message || 'No message received'}`;
+      // Store results for reuse
+      analyzedComments.set(commentsHash, result);
+      // Display results in the comment divs
+      displayResultsInComments(result);
     }
-    
-    logDiv.appendChild(apiResultDiv);
   });
+}
+
+// Debounced function to process comments
+function debouncedProcessComments() {
+  if (apiCallTimer) clearTimeout(apiCallTimer);
+  
+  apiCallTimer = setTimeout(() => {
+    // Give the DOM a moment to fully update (especially for pagination)
+    setTimeout(() => {
+      const comments = ShopeeHelpers.extractShopeeCommentTexts();
+      if (comments && comments.length > 0) {
+        console.log(`Processing ${comments.length} comments after pagination or DOM change`);
+        processCommentsWithApiKeyCheck(comments);
+      } else {
+        console.log('No comments found to process');
+      }
+    }, 200); // Small additional delay for pagination rendering
+  }, DEBOUNCE_DELAY);
+}
+
+// Process comments with API key check
+async function processCommentsWithApiKeyCheck(comments) {
+  try {
+    // Always extract and store detailed comments whether we have an API key or not
+    const extractedComments = window.ShopeeHelpers.extractDetailedCommentData();
+      
+    // Store the comments in memory for later if popup is opened or for database upload
+    window.extractedCommentsCache = extractedComments;
+    console.log(`Extracted ${extractedComments.length} comments (stored for later use)`);
+    
+    // Check if we have a stored API key for analysis
+    const apiKey = await window.DirectGeminiAPI.getStoredApiKey();
+    if (apiKey) {
+      // If we have an API key, proceed with Gemini analysis
+      showCommentsOverlay(comments);
+    } else {
+      // Without API key, just keep the extracted comments for database
+      console.log("No API key found, comments extracted but not analyzed");
+    }
+  } catch (error) {
+    console.error("Error processing comments:", error);
+  }
 }
 
 // Watch for changes in the comment list container
 function observeShopeeComments() {
-  const commentsSection = document.querySelector('.shopee-product-comment-list');
+  const commentsSection = document.querySelector(ShopeeHelpers.SELECTORS.COMMENT_LIST);
   if (!commentsSection) return;
 
-  const observer = new MutationObserver(() => {
-    const comments = extractShopeeCommentTexts();
-    showCommentsOverlay(comments);
+  // Set up pagination observer
+  const paginationObserver = new MutationObserver((mutations) => {
+    for (const mutation of mutations) {
+      if (mutation.attributeName === 'class' && 
+          (mutation.target.classList.contains('shopee-button-solid--primary') || 
+           mutation.target.closest('.shopee-page-controller'))) {
+        console.log('Pagination change detected');
+        debouncedProcessComments();
+        break;
+      }
+    }
+  });
+  
+  // Find pagination container and observe it if it exists
+  const paginationContainer = document.querySelector('.shopee-page-controller');
+  if (paginationContainer) {
+    paginationObserver.observe(paginationContainer, { 
+      childList: true, 
+      subtree: true, 
+      attributes: true,
+      attributeFilter: ['class']
+    });
+  }
+
+  // Also add click event listeners to pagination buttons
+  document.addEventListener('click', (event) => {
+    // Check if the clicked element is a pagination button or inside one
+    const isPaginationButton = event.target.closest('.shopee-page-controller') || 
+                              event.target.matches('.shopee-icon-button--right') || 
+                              event.target.matches('.shopee-icon-button--left');
+    
+    if (isPaginationButton) {
+      console.log('Pagination button clicked');
+      // Add a slight delay to let the page render new comments
+      setTimeout(() => debouncedProcessComments(), 500);
+    }
+  }, true);
+
+  // Standard DOM mutation observer for the comments section
+  const commentObserver = new MutationObserver(() => {
+    // Skip if we're the ones updating the DOM
+    if (window.isUpdatingCommentDOM) return;
+    
+    debouncedProcessComments();
   });
 
   // Observe subtree for any change (new comments, page change, etc)
-  observer.observe(commentsSection, { childList: true, subtree: true });
+  commentObserver.observe(commentsSection, { childList: true, subtree: true });
 
   // Initial run
-  const comments = extractShopeeCommentTexts();
+  const comments = ShopeeHelpers.extractShopeeCommentTexts();
   showCommentsOverlay(comments);
 }
 
 // Set up URL change detection outside of waitForCommentsSection
 let currentUrl = window.location.href;
+let currentPaginationPage = '1'; // Track the current pagination page
 
 function checkUrlChange() {
   if (currentUrl !== window.location.href) {
+    const oldUrl = currentUrl;
     currentUrl = window.location.href;
+    
+    // Trigger upload of any existing comments before resetting
+    if (window.CommentExtractor) {
+      window.CommentExtractor.handleUrlChange({
+        action: "urlChanged", 
+        oldUrl,
+        newUrl: currentUrl,
+        uploadComments: true
+      });
+    }
+    
+    // Reset tracking when URL changes
+    analyzedComments.clear();
+    window.extractedCommentsCache = [];
+    isApiCallInProgress = false;
+    if (apiCallTimer) clearTimeout(apiCallTimer);
+    
+    // Notify popup about URL change
+    chrome.runtime.sendMessage({
+      action: "urlChanged",
+      oldUrl,
+      newUrl: currentUrl
+    }).catch(err => console.log("Popup not open"));
+    
     waitForCommentsSection();
+  }
+  
+  // Check for pagination changes
+  checkPaginationChange();
+}
+
+// Check if pagination has changed
+function checkPaginationChange() {
+  try {
+    // Try to find the active pagination button
+    const activePaginationElement = document.querySelector('.shopee-page-controller > .shopee-button-solid--primary');
+    if (activePaginationElement) {
+      const currentPage = activePaginationElement.textContent.trim();
+      
+      // If the page number changed, process comments again
+      if (currentPage !== currentPaginationPage) {
+        console.log(`Pagination changed from ${currentPaginationPage} to ${currentPage}`);
+        currentPaginationPage = currentPage;
+        
+        // Process comments with a delay to allow the page to render
+        setTimeout(() => {
+          if (isAutoExtractEnabled) {
+            debouncedProcessComments();
+          }
+        }, 500);
+      }
+    }
+  } catch (error) {
+    console.error('Error checking pagination:', error);
   }
 }
 
-// Poll for URL changes every 500ms (since SPAs can change URL without triggering events)
+// Poll for URL and pagination changes every 500ms (since SPAs can change without triggering events)
 setInterval(checkUrlChange, 500);
 
 function waitForCommentsSection() {
@@ -125,21 +343,311 @@ function waitForCommentsSection() {
   const existingOverlay = document.getElementById('shopee-comments-overlay');
   if (existingOverlay) existingOverlay.remove();
   
+  // Reset pagination tracking
+  currentPaginationPage = '1';
+  
   const observer = new MutationObserver(() => {
-    const section = document.querySelector('.shopee-product-comment-list');
+    const section = document.querySelector(ShopeeHelpers.SELECTORS.COMMENT_LIST);
     if (section) {
+      // Make sure any pending API calls are reset
+      isApiCallInProgress = false;
+      if (apiCallTimer) clearTimeout(apiCallTimer);
+      
+      // Set up observers for comments and pagination
       observeShopeeComments();
+      
+      // Auto-extract comments when section is found if setting is enabled
+      if (isAutoExtractEnabled) {
+        // Give a moment for the page to fully render
+        setTimeout(() => debouncedProcessComments(), 300);
+      }
+      
       observer.disconnect();
     }
   });
 
-  if (document.querySelector('.shopee-product-comment-list')) {
+  if (document.querySelector(ShopeeHelpers.SELECTORS.COMMENT_LIST)) {
+    // Make sure any pending API calls are reset
+    isApiCallInProgress = false;
+    if (apiCallTimer) clearTimeout(apiCallTimer);
+    
     observeShopeeComments();
+    
+    // Auto-extract comments if section is already on the page and setting is enabled
+    if (isAutoExtractEnabled) {
+      debouncedProcessComments();
+    }
+    
     return;
   }
 
   observer.observe(document.body, { childList: true, subtree: true });
 }
+
+// Auto-extract setting
+let isAutoExtractEnabled = true;
+
+// Load auto-extract setting from storage
+function loadAutoExtractSetting() {
+  try {
+    const AUTO_EXTRACT_STORAGE_KEY = "auto_extract_enabled";
+    chrome.storage.local.get([AUTO_EXTRACT_STORAGE_KEY], (result) => {
+      // Default to true if not set
+      isAutoExtractEnabled = result[AUTO_EXTRACT_STORAGE_KEY] !== false;
+      console.log(`Auto-extract is ${isAutoExtractEnabled ? 'enabled' : 'disabled'}`);
+    });
+  } catch (error) {
+    console.error('Failed to load auto-extract setting:', error);
+    // Default to true if there's an error
+    isAutoExtractEnabled = true;
+  }
+}
+
+// Load setting when content script initializes
+loadAutoExtractSetting();
+
+// Listen for messages from popup or background script
+chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+  if (request.action === "extractComments") {
+    try {
+      // Use CommentExtractor if available, otherwise fallback to basic extraction
+      if (window.CommentExtractor) {
+        // Handle async extraction
+        window.CommentExtractor.extractAllComments(false).then(extractedComments => {
+          sendResponse({ comments: extractedComments });
+        }).catch(error => {
+          console.error("Error extracting comments:", error);
+          sendResponse({ error: true, message: error.message });
+        });
+      } else if (window.ShopeeHelpers) {
+        // Fallback to synchronous method
+        const extractedComments = window.ShopeeHelpers.extractDetailedCommentData();
+        sendResponse({ comments: extractedComments });
+      } else {
+        console.error("Comment extraction tools not available");
+        sendResponse({ error: true, message: "Comment extraction tools not available" });
+      }
+    } catch (error) {
+      console.error("Error extracting comments:", error);
+      sendResponse({ error: true, message: error.message });
+    }
+    return true; // Keep the message channel open for async response
+  } else if (request.action === "autoExtractComments") {
+    // Auto extraction triggered by background script
+    console.log("Auto extraction triggered");
+    
+    // Refresh the auto-extract setting before proceeding
+    loadAutoExtractSetting();
+    
+    // Slight delay to ensure setting is loaded
+    setTimeout(() => {
+      if (isAutoExtractEnabled) {
+        // Process comments using existing functionality
+        debouncedProcessComments();
+      } else {
+        console.log("Auto-extraction disabled, skipping");
+      }
+    }, 100);
+  } else if (request.action === "getProcessedComments") {
+    // Check if we have already processed comments on this page or have cached comments
+    const currentComments = ShopeeHelpers.extractShopeeCommentTexts();
+    const currentCommentsHash = currentComments.join('|');
+    const hasProcessedComments = analyzedComments.has(currentCommentsHash) && analyzedComments.size > 0;
+    
+    // Check if we have cached comments from auto-extraction without API key
+    if (window.extractedCommentsCache && window.extractedCommentsCache.length > 0) {
+      console.log("Found cached comments, returning to popup");
+      sendResponse({ 
+        hasProcessedComments: true, 
+        cachedComments: window.extractedCommentsCache 
+      });
+    } else {
+      sendResponse({ hasProcessedComments: hasProcessedComments });
+    }
+  } else if (request.action === "updateAutoExtractSetting") {
+    // Update auto-extract setting
+    isAutoExtractEnabled = request.isEnabled;
+    console.log(`Auto-extract setting updated: ${isAutoExtractEnabled ? 'enabled' : 'disabled'}`);
+    sendResponse({ success: true });
+  } else if (request.action === "extractMultiPageComments") {
+    // Start multi-page extraction
+    const totalPages = request.pages || 15; // Default to 5 pages
+    extractMultiplePages(totalPages);
+    sendResponse({ started: true });
+    return true;
+  } else if (request.action === "urlChanged") {
+    console.log("URL changed, handling in content script");
+    
+    // Clear the comment cache when URL changes
+    window.extractedCommentsCache = [];
+    analyzedComments.clear();
+    
+    // Forward the URL change message to the CommentExtractor to handle uploads
+    // We need to do this even when Gemini analysis is enabled
+    if (window.CommentExtractor) {
+      // Make sure we're setting uploadComments to true
+      const urlChangeRequest = {...request, uploadComments: true};
+      // The CommentExtractor will handle comment uploads if enabled
+      window.CommentExtractor.handleUrlChange(urlChangeRequest);
+    }
+    
+    sendResponse({ success: true });
+    return true;
+  }
+});
+
+// Function to navigate through pages and extract comments
+async function extractMultiplePages(totalPages) {
+  // Track pages and comments
+  let currentPage = 1;
+  let allExtractedComments = [];
+  const MAX_RETRIES = 3;
+  
+  try {
+    while (currentPage <= totalPages) {
+      // Send progress update to popup
+      chrome.runtime.sendMessage({
+        action: "extractionProgress",
+        currentPage: currentPage,
+        totalPages: totalPages,
+        complete: false
+      });
+      
+      // Extract comments from current page
+      let extractedComments = [];
+      let retries = 0;
+      let success = false;
+      
+      while (!success && retries < MAX_RETRIES) {
+        try {
+          // Use CommentExtractor if available
+          if (window.CommentExtractor) {
+            extractedComments = await window.CommentExtractor.extractAllComments(false);
+          } else if (window.ShopeeHelpers) {
+            extractedComments = window.ShopeeHelpers.extractDetailedCommentData();
+          }
+          
+          success = true;
+        } catch (error) {
+          console.error(`Error extracting page ${currentPage}, retry ${retries + 1}:`, error);
+          retries++;
+          // Wait a moment before retrying
+          await new Promise(resolve => setTimeout(resolve, 1000));
+        }
+      }
+      
+      // Add comments to collection
+      if (extractedComments && extractedComments.length > 0) {
+        allExtractedComments = allExtractedComments.concat(extractedComments);
+        
+        // Send progress with comments
+        chrome.runtime.sendMessage({
+          action: "extractionProgress",
+          currentPage: currentPage,
+          totalPages: totalPages,
+          comments: extractedComments,
+          complete: false
+        });
+      }
+      
+      // Go to next page if not the last page
+      if (currentPage < totalPages) {
+        const nextPageSuccess = await goToNextPage();
+        if (!nextPageSuccess) {
+          console.log("Could not navigate to next page, stopping extraction");
+          break;
+        }
+        
+        // Wait for page to load
+        await new Promise(resolve => setTimeout(resolve, 2000));
+      }
+      
+      currentPage++;
+    }
+    
+    // Send final completion message
+    chrome.runtime.sendMessage({
+      action: "extractionProgress",
+      currentPage: currentPage - 1,
+      totalPages: totalPages,
+      complete: true
+    });
+    
+    return allExtractedComments;
+  } catch (error) {
+    console.error("Error during multi-page extraction:", error);
+    
+    // Send error message
+    chrome.runtime.sendMessage({
+      action: "extractionProgress",
+      currentPage: currentPage,
+      totalPages: totalPages,
+      error: true,
+      errorMessage: error.message,
+      complete: true
+    });
+    
+    return allExtractedComments;
+  }
+}
+
+// Function to click the next page button
+async function goToNextPage() {
+  return new Promise(resolve => {
+    try {
+      // Find next button - various Shopee site versions might have different selectors
+      const nextButton = document.querySelector('.shopee-icon-button--right') || 
+                         document.querySelector('.shopee-page-controller .shopee-button-next') ||
+                         Array.from(document.querySelectorAll('.shopee-page-controller button')).find(btn => 
+                           btn.textContent.includes('>') || btn.innerHTML.includes('next'));
+      
+      if (!nextButton || nextButton.disabled) {
+        console.log("Next page button not found or disabled");
+        resolve(false);
+        return;
+      }
+      
+      // Click the button
+      nextButton.click();
+      console.log("Navigated to next page");
+      resolve(true);
+    } catch (error) {
+      console.error("Error navigating to next page:", error);
+      resolve(false);
+    }
+  });
+}
+
+// Initialize auto-extraction when page is loaded
+// This ensures comments are extracted even if the popup is never opened
+function initAutoExtractOnLoad() {
+  // Check if we're on a Shopee product page
+  if (!window.location.href.match(/shopee\.(sg|com|ph|co\.id|com\.my).*\/product\/\d+\/\d+/i)) {
+    console.log("Not on a Shopee product page, skipping auto-extract initialization");
+    return;
+  }
+
+  console.log("Initializing auto-extract on page load");
+  
+  // Give the page time to fully load before attempting extraction
+  setTimeout(() => {
+    // Check if auto-extract is enabled
+    loadAutoExtractSetting();
+    
+    // After a slight delay to ensure setting is loaded
+    setTimeout(() => {
+      if (isAutoExtractEnabled) {
+        console.log("Auto-extracting comments on page load");
+        debouncedProcessComments();
+      } else {
+        console.log("Auto-extract disabled, skipping initialization");
+      }
+    }, 100);
+  }, 3000);
+}
+
+// Run auto-extract initialization
+initAutoExtractOnLoad();
 
 // Start the watcher
 waitForCommentsSection();
