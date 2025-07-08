@@ -170,7 +170,6 @@ async function promptForApiKey() {
 // Export functions
 window.DirectGeminiAPI = {
   analyzeCommentsDirectly,
-  promptForApiKey,
   getStoredApiKey,
   storeApiKey
 };

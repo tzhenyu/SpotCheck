@@ -184,28 +184,46 @@ function extractTimestamp(container) {
   
   // Regular expression to find timestamp in format "YYYY-MM-DD HH:MM"
   const timestampRegex = /(\d{4}-\d{2}-\d{2}\s\d{2}:\d{2})/;
-  const match = rawText.match(timestampRegex);
+  let match = rawText.match(timestampRegex);
+  let timestamp = '';
   
+  // First try to extract timestamp from the whole string
   if (match && match[1]) {
-    // We found a timestamp in the required format
-    const timestamp = match[1];
-    
+    timestamp = match[1];
+  } 
+  // If no timestamp found in the whole string but it contains a separator
+  else if (rawText.includes('|')) {
+    // Split by pipe and check each part for a timestamp
+    const parts = rawText.split('|');
+    for (const part of parts) {
+      match = part.trim().match(timestampRegex);
+      if (match && match[1]) {
+        timestamp = match[1];
+        break;
+      }
+    }
+  }
+  
+  // If we found a timestamp anywhere in the string
+  if (timestamp) {
     // Check if this is the "timestamp | Variation" format
     if (rawText.includes('Variation:')) {
       const parts = rawText.split('|');
       return {
         timestamp: timestamp,
+        timestampOnly: timestamp,
         variation: parts.length > 1 ? parts[1].replace('Variation:', '').trim() : '',
         raw: rawText
       };
     } 
-    // Check if this is the "Location | timestamp" format
+    // Check if this is the "Location | timestamp" or "timestamp | Location" format
     else if (rawText.includes('|')) {
       const parts = rawText.split('|');
       return {
-        timestamp: timestamp,
-        variation: '',  // No variation in this format
-        location: parts[0].trim(),
+        timestamp: `${parts[0].trim()} | ${parts[1].trim()}`,
+        timestampOnly: timestamp,
+        variation: '',
+        location: timestamp === parts[0].trim() ? parts[1].trim() : parts[0].trim(),
         raw: rawText
       };
     }
@@ -213,15 +231,17 @@ function extractTimestamp(container) {
     else {
       return {
         timestamp: timestamp,
+        timestampOnly: timestamp,
         variation: '',
         raw: rawText
       };
     }
   }
   
-  // If no match found, return the original text
+  // If no timestamp match found, return the original text
   return {
-    timestamp: '',
+    timestamp: rawText,
+    timestampOnly: '',
     variation: '',
     raw: rawText
   };
@@ -275,6 +295,37 @@ function extractPageMetadata() {
 }
 
 /**
+ * Formats accumulated comments for API upload
+ * @returns {Object} Object with comments array and metadata array
+ */
+function formatCommentsForUpload() {
+  if (!accumulatedComments.length) return { comments: [], metadata: [] };
+  
+  // Get product information
+  const productTitle = document.title || 'Unknown Product';
+  const productURL = window.location.href;
+  const source = window.location.hostname;
+  
+  // Extract only comment texts for the comments array
+  const commentTexts = accumulatedComments.map(c => c.comment);
+  
+  // Format metadata for each comment
+  const metadata = accumulatedComments.map(c => ({
+    comment: c.comment,
+    username: c.username,
+    rating: c.starRating || 0,
+    source: source,
+    product: productTitle,
+    timestamp: c.timestamp || new Date().toISOString()
+  }));
+  
+  return {
+    comments: commentTexts,
+    metadata: metadata
+  };
+}
+
+/**
  * Resets accumulated comments
  */
 function resetAccumulatedComments() {
@@ -285,8 +336,57 @@ function resetAccumulatedComments() {
 // Listen for messages from background script
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.action === "urlChanged") {
+    // Don't upload if no comments have been accumulated
+    if (message.uploadComments && accumulatedComments.length > 0) {
+      console.log("Uploading comments on URL change:", accumulatedComments.length);
+      
+      // Format comments for the backend API
+      const formattedData = formatCommentsForUpload();
+      
+      // Show notification in the page
+      const notificationDiv = document.createElement('div');
+      notificationDiv.style.position = 'fixed';
+      notificationDiv.style.bottom = '20px';
+      notificationDiv.style.right = '20px';
+      notificationDiv.style.padding = '10px 15px';
+      notificationDiv.style.backgroundColor = '#4CAF50';
+      notificationDiv.style.color = 'white';
+      notificationDiv.style.borderRadius = '5px';
+      notificationDiv.style.zIndex = '10000';
+      notificationDiv.style.boxShadow = '0 2px 5px rgba(0,0,0,0.2)';
+      notificationDiv.textContent = `Uploading ${accumulatedComments.length} comments...`;
+      document.body.appendChild(notificationDiv);
+      
+      // Send to background script to make API call
+      chrome.runtime.sendMessage({
+        action: "callAPI",
+        endpoint: "comments",
+        data: formattedData
+      }, response => {
+        console.log("Comment upload response:", response);
+        
+        // Update notification
+        if (response && response.success) {
+          notificationDiv.textContent = `Successfully uploaded ${accumulatedComments.length} comments`;
+          notificationDiv.style.backgroundColor = '#4CAF50'; // Green
+        } else {
+          notificationDiv.textContent = 'Failed to upload comments';
+          notificationDiv.style.backgroundColor = '#F44336'; // Red
+        }
+        
+        // Remove notification after a delay
+        setTimeout(() => {
+          if (notificationDiv.parentNode) {
+            notificationDiv.parentNode.removeChild(notificationDiv);
+          }
+        }, 3000);
+      });
+    }
+    
+    // Reset accumulated comments after processing
     resetAccumulatedComments();
     console.log("URL changed, comments cleared");
+    
     // Send response to confirm receipt
     if (sendResponse) sendResponse({ status: "Comments cleared" });
   }
@@ -300,5 +400,6 @@ window.CommentExtractor = {
   extractStarRating,
   extractPageMetadata,
   resetAccumulatedComments,
+  formatCommentsForUpload,
   COMMENT_SELECTORS
 };

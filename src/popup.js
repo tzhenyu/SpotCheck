@@ -6,6 +6,10 @@
 const API_KEY_STORAGE_KEY = "gemini_api_key";
 // Add the backend API URL constant
 const BACKEND_API_URL = "http://localhost:8000";
+// Auto-extract setting storage key
+const AUTO_EXTRACT_STORAGE_KEY = "auto_extract_enabled";
+// Auto-upload setting storage key
+const AUTO_UPLOAD_STORAGE_KEY = "auto_upload_enabled";
 
 // DOM Elements
 const apiKeyInput = document.getElementById('api-key');
@@ -21,6 +25,8 @@ const progressBar = document.getElementById('progress-bar');
 const progressText = document.getElementById('progress-text');
 const commentCount = document.getElementById('comment-count');
 const uploadSqlButton = document.getElementById('upload-sql-btn');
+const autoExtractToggle = document.getElementById('auto-extract-toggle');
+const autoUploadToggle = document.getElementById('auto-upload-toggle');
 
 // Stored comments
 let storedComments = [];
@@ -39,8 +45,23 @@ function loadApiKey() {
         if (tabs[0] && tabs[0].url && tabs[0].url.includes('shopee.')) {
           // Check if we need to manually trigger extraction or just display already processed comments
           chrome.tabs.sendMessage(tabs[0].id, { action: "getProcessedComments" }, (response) => {
-            if (chrome.runtime.lastError || !response || !response.hasProcessedComments) {
-              // If comments haven't been processed yet, extract them now
+            if (chrome.runtime.lastError) {
+              console.error("Error communicating with content script:", chrome.runtime.lastError);
+              extractComments();
+              return;
+            }
+            
+            // If we have cached comments from auto-extraction, display them
+            if (response && response.cachedComments && response.cachedComments.length > 0) {
+              console.log("Using cached comments from auto-extraction");
+              displayComments(response.cachedComments, false);
+            } 
+            // If there are processed comments on the page already, don't extract again
+            else if (response && response.hasProcessedComments) {
+              console.log("Comments already processed on this page");
+            } 
+            // Otherwise extract comments now
+            else {
               extractComments();
             }
           });
@@ -54,6 +75,36 @@ function loadApiKey() {
   } catch (error) {
     console.error('Failed to load API key:', error);
     showStatus('Failed to load API key', 'error');
+  }
+}
+
+// Load auto-extract setting from storage
+function loadAutoExtractSetting() {
+  try {
+    chrome.storage.local.get([AUTO_EXTRACT_STORAGE_KEY], (result) => {
+      // Default to true if not set (null check is important)
+      const isEnabled = result[AUTO_EXTRACT_STORAGE_KEY] !== false;
+      autoExtractToggle.checked = isEnabled;
+    });
+  } catch (error) {
+    console.error('Failed to load auto-extract setting:', error);
+    // Default to true if there's an error
+    autoExtractToggle.checked = true;
+  }
+}
+
+// Load auto-upload setting from storage
+function loadAutoUploadSetting() {
+  try {
+    chrome.storage.local.get([AUTO_UPLOAD_STORAGE_KEY], (result) => {
+      // Default to true if not set (null check is important)
+      const isEnabled = result[AUTO_UPLOAD_STORAGE_KEY] !== false;
+      autoUploadToggle.checked = isEnabled;
+    });
+  } catch (error) {
+    console.error('Failed to load auto-upload setting:', error);
+    // Default to true if there's an error
+    autoUploadToggle.checked = true;
   }
 }
 
@@ -566,16 +617,74 @@ function updateCommentsWithAnalysis(results, offset = 0) {
   }
 }
 
+// Save auto-extract setting to storage and notify content scripts
+function saveAutoExtractSetting(isEnabled) {
+  try {
+    chrome.storage.local.set({ [AUTO_EXTRACT_STORAGE_KEY]: isEnabled }, () => {
+      console.log(`Auto-extract ${isEnabled ? 'enabled' : 'disabled'}`);
+      
+      // Notify any active content scripts about the setting change
+      chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+        if (tabs[0] && tabs[0].url && tabs[0].url.includes('shopee.')) {
+          try {
+            chrome.tabs.sendMessage(
+              tabs[0].id,
+              { action: "updateAutoExtractSetting", isEnabled: isEnabled },
+              (response) => {
+                if (chrome.runtime.lastError) {
+                  console.log("Content script not ready for setting update");
+                }
+              }
+            );
+          } catch (error) {
+            console.error('Error notifying content script:', error);
+          }
+        }
+      });
+    });
+  } catch (error) {
+    console.error('Failed to save auto-extract setting:', error);
+  }
+}
+
+// Save auto-upload setting to storage and notify background script
+function saveAutoUploadSetting(isEnabled) {
+  try {
+    chrome.storage.local.set({ [AUTO_UPLOAD_STORAGE_KEY]: isEnabled }, () => {
+      console.log(`Auto-upload ${isEnabled ? 'enabled' : 'disabled'}`);
+      
+      // Notify background script about the setting change
+      chrome.runtime.sendMessage(
+        { action: "updateAutoUploadSetting", isEnabled: isEnabled },
+        (response) => {
+          if (chrome.runtime.lastError) {
+            console.log("Background script not ready for setting update");
+          }
+        }
+      );
+    });
+  } catch (error) {
+    console.error('Failed to save auto-upload setting:', error);
+  }
+}
+
 // Event listeners
 saveButton.addEventListener('click', saveApiKey);
 clearButton.addEventListener('click', clearApiKey);
 extractAllButton.addEventListener('click', extractAllPages);
 downloadCsvButton.addEventListener('click', () => downloadCommentsCSV());
 uploadSqlButton.addEventListener('click', uploadCommentsToSql);
+autoExtractToggle.addEventListener('change', (e) => {
+  saveAutoExtractSetting(e.target.checked);
+});
+autoUploadToggle.addEventListener('change', (e) => {
+  saveAutoUploadSetting(e.target.checked);
+});
 
 // Initialize popup
 document.addEventListener('DOMContentLoaded', () => {
   loadApiKey();
+  loadAutoExtractSetting();
   
   // Listen for URL change messages from background script
   chrome.runtime.onMessage.addListener((message) => {
