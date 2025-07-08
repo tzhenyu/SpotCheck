@@ -52,4 +52,5 @@ INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
 8. There's a "upload to sql server" button. Click it
 9. If there's a successful message, you are done!
 
+#### WHEN GOING TO ANOTHER PRODUCT, PLEASE RELOAD THE PAGE, HAVE TO CLEAR OUT THE COMMENT FIRST
 #### Repeat it for 15 different pages
