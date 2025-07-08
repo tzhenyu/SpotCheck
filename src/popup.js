@@ -171,6 +171,109 @@ async function extractComments() {
   }
 }
 
+// Extract comments from multiple pages (navigate through pagination)
+async function extractAllPages() {
+  try {
+    // Get the current active tab
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    
+    if (!tab) {
+      showStatus('No active tab found', 'error');
+      return;
+    }
+    
+    // Check if we're on a Shopee site
+    const isShopee = tab.url.includes('shopee.');
+    if (!isShopee) {
+      showStatus('Not on a Shopee page', 'error');
+      return;
+    }
+    
+    // Show extraction is starting
+    extractionProgress.classList.remove('hidden');
+    progressBar.style.width = '0%';
+    progressText.textContent = 'Preparing to extract comments...';
+    showStatus('Starting multi-page extraction...', 'success');
+    
+    // Clear previous comments and DOM
+    commentsList.innerHTML = '';
+    storedComments = [];
+    commentCount.textContent = '0';
+    
+    // Send message to content script to extract from multiple pages (30 pages)
+    chrome.tabs.sendMessage(
+      tab.id,
+      { action: "extractMultiPageComments", pages: 30 },
+      (response) => {
+        if (chrome.runtime.lastError) {
+          showStatus('Error communicating with page', 'error');
+          extractionProgress.classList.add('hidden');
+          console.error(chrome.runtime.lastError);
+          return;
+        }
+        
+        // Nothing to do here, updates will come through progress updates
+      }
+    );
+    
+    // Track total unique comments across all pages
+    let totalUniqueComments = new Set();
+    
+    // Listen for progress updates
+    chrome.runtime.onMessage.addListener(function progressListener(message, sender, sendResponse) {
+      if (message.action === "extractionProgress") {
+        // Update progress bar
+        const percent = (message.currentPage / message.totalPages) * 100;
+        progressBar.style.width = `${percent}%`;
+        progressText.textContent = `Extracting page ${message.currentPage} of ${message.totalPages}...`;
+        
+        // Add comments to stored collection
+        if (message.comments && message.comments.length > 0) {
+          // Keep track of unique comments by ID
+          if (message.currentPage === 1) {
+            // For first page, reset everything
+            storedComments = [];
+            commentsList.innerHTML = '';
+            totalUniqueComments = new Set();
+          }
+          
+          // Filter out any duplicate comments that might be returned
+          const uniqueNewComments = message.comments.filter(comment => {
+            if (totalUniqueComments.has(comment.id)) {
+              return false; // Skip if we've already seen this comment
+            }
+            totalUniqueComments.add(comment.id);
+            return true;
+          });
+          
+          // Only display actually new comments
+          if (uniqueNewComments.length > 0) {
+            storedComments = storedComments.concat(uniqueNewComments);
+            displayComments(uniqueNewComments, true);
+          }
+        }
+        
+        // If complete, finalize
+        if (message.complete) {
+          chrome.runtime.onMessage.removeListener(progressListener);
+          showStatus(`Extracted ${storedComments.length} comments from ${message.totalPages} pages`, 'success');
+          extractionProgress.classList.add('hidden');
+          
+          // Ensure counter is accurate
+          if (commentCount) {
+            commentCount.textContent = storedComments.length;
+          }
+        }
+      }
+      return true;
+    });
+  } catch (error) {
+    console.error('Failed to extract comments from multiple pages:', error);
+    showStatus('Failed to extract comments', 'error');
+    extractionProgress.classList.add('hidden');
+  }
+}
+
 // Display comments in the popup
 function displayComments(comments, append = false) {
   if (!comments || comments.length === 0) {
@@ -183,7 +286,8 @@ function displayComments(comments, append = false) {
     commentsList.innerHTML = '';
     storedComments = comments.slice(); // Make a copy of the comments
   } else {
-    storedComments = storedComments.concat(comments);
+    // When appending, don't modify storedComments array here
+    // It's now handled in the extractAllPages function
   }
   
   // Update comment count
@@ -235,82 +339,10 @@ function displayComments(comments, append = false) {
   
   // Show the comments container
   commentsContainer.classList.remove('hidden');
-  showStatus(`${comments.length} comments extracted`, 'success');
-}
-
-// Extract comments from multiple pages (navigate through pagination)
-async function extractAllPages() {
-  try {
-    // Get the current active tab
-    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-    
-    if (!tab) {
-      showStatus('No active tab found', 'error');
-      return;
-    }
-    
-    // Check if we're on a Shopee site
-    const isShopee = tab.url.includes('shopee.');
-    if (!isShopee) {
-      showStatus('Not on a Shopee page', 'error');
-      return;
-    }
-    
-    // Show extraction is starting
-    extractionProgress.classList.remove('hidden');
-    progressBar.style.width = '0%';
-    progressText.textContent = 'Preparing to extract comments...';
-    showStatus('Starting multi-page extraction...', 'success');
-    
-    // Clear previous comments and DOM
-    commentsList.innerHTML = '';
-    storedComments = [];
-    commentCount.textContent = '0';
-    
-    // Send message to content script to extract from multiple pages (30 pages)
-    chrome.tabs.sendMessage(
-      tab.id,
-      { action: "extractMultiPageComments", pages: 30 },
-      (response) => {
-        if (chrome.runtime.lastError) {
-          showStatus('Error communicating with page', 'error');
-          extractionProgress.classList.add('hidden');
-          console.error(chrome.runtime.lastError);
-          return;
-        }
-        
-        // Nothing to do here, updates will come through progress updates
-      }
-    );
-    
-    // Listen for progress updates
-    chrome.runtime.onMessage.addListener(function progressListener(message, sender, sendResponse) {
-      if (message.action === "extractionProgress") {
-        // Update progress bar
-        const percent = (message.currentPage / message.totalPages) * 100;
-        progressBar.style.width = `${percent}%`;
-        progressText.textContent = `Extracting page ${message.currentPage} of ${message.totalPages}...`;
-        
-        // Add comments to stored collection
-        if (message.comments && message.comments.length > 0) {
-          // Display with append=true for page after the first one
-          const isFirstPage = message.currentPage === 1;
-          displayComments(message.comments, !isFirstPage);
-        }
-        
-        // If complete, finalize
-        if (message.complete) {
-          chrome.runtime.onMessage.removeListener(progressListener);
-          showStatus(`Extracted ${storedComments.length} comments from ${message.totalPages} pages`, 'success');
-          extractionProgress.classList.add('hidden');
-        }
-      }
-      return true;
-    });
-  } catch (error) {
-    console.error('Failed to extract comments from multiple pages:', error);
-    showStatus('Failed to extract comments', 'error');
-    extractionProgress.classList.add('hidden');
+  
+  // Only show status for non-append operations (initial loads)
+  if (!append) {
+    showStatus(`${comments.length} comments extracted`, 'success');
   }
 }
 
