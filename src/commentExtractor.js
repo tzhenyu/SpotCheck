@@ -333,59 +333,99 @@ function resetAccumulatedComments() {
   return [];
 }
 
+/**
+ * Handles URL change messages from contentScript.js or background.js
+ * @param {Object} message - The message containing URL change information
+ */
+function handleUrlChange(message) {
+  console.log("CommentExtractor handling URL change:", message);
+  
+  // Also check for extracted comments in the window cache (set by Gemini analysis flow)
+  const commentsToUpload = accumulatedComments.length > 0 ? 
+    accumulatedComments : 
+    (window.extractedCommentsCache && window.extractedCommentsCache.length > 0 ? 
+      window.extractedCommentsCache : []);
+  
+  // Don't upload if no comments have been accumulated
+  if (message.uploadComments && commentsToUpload.length > 0) {
+    console.log("Uploading comments on URL change:", commentsToUpload.length);
+    
+    // Format comments for the backend API
+    let formattedData;
+    
+    // Use different formatting based on which source we're using
+    if (accumulatedComments.length > 0) {
+      formattedData = formatCommentsForUpload();
+    } else {
+      // Format the extractedCommentsCache for upload
+      const commentTexts = commentsToUpload.map(c => c.comment);
+      const metadata = commentsToUpload.map(c => ({
+        comment: c.comment,
+        username: c.username,
+        rating: c.starRating || 0,
+        source: window.location.hostname,
+        product: document.title || 'Unknown Product',
+        timestamp: c.timestampOnly || new Date().toISOString()
+      }));
+      
+      formattedData = {
+        comments: commentTexts,
+        metadata: metadata
+      };
+    }
+    
+    // Show notification in the page
+    const notificationDiv = document.createElement('div');
+    notificationDiv.style.position = 'fixed';
+    notificationDiv.style.bottom = '20px';
+    notificationDiv.style.right = '20px';
+    notificationDiv.style.padding = '10px 15px';
+    notificationDiv.style.backgroundColor = '#4CAF50';
+    notificationDiv.style.color = 'white';
+    notificationDiv.style.borderRadius = '5px';
+    notificationDiv.style.zIndex = '10000';
+    notificationDiv.style.boxShadow = '0 2px 5px rgba(0,0,0,0.2)';
+    notificationDiv.textContent = `Uploading ${commentsToUpload.length} comments...`;
+    document.body.appendChild(notificationDiv);
+    
+    // Send to background script to make API call
+    chrome.runtime.sendMessage({
+      action: "callAPI",
+      endpoint: "comments",
+      data: formattedData
+    }, response => {
+      console.log("Comment upload response:", response);
+      
+      // Update notification
+      if (response && response.success) {
+        notificationDiv.textContent = `Successfully uploaded ${commentsToUpload.length} comments`;
+        notificationDiv.style.backgroundColor = '#4CAF50'; // Green
+      } else {
+        notificationDiv.textContent = 'Failed to upload comments';
+        notificationDiv.style.backgroundColor = '#F44336'; // Red
+      }
+      
+      // Remove notification after a delay
+      setTimeout(() => {
+        if (notificationDiv.parentNode) {
+          notificationDiv.parentNode.removeChild(notificationDiv);
+        }
+      }, 3000);
+    });
+  }
+  
+  // Reset accumulated comments after processing
+  resetAccumulatedComments();
+  // Also clear the window cache
+  window.extractedCommentsCache = [];
+  console.log("URL changed, comments cleared");
+}
+
 // Listen for messages from background script
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.action === "urlChanged") {
-    // Don't upload if no comments have been accumulated
-    if (message.uploadComments && accumulatedComments.length > 0) {
-      console.log("Uploading comments on URL change:", accumulatedComments.length);
-      
-      // Format comments for the backend API
-      const formattedData = formatCommentsForUpload();
-      
-      // Show notification in the page
-      const notificationDiv = document.createElement('div');
-      notificationDiv.style.position = 'fixed';
-      notificationDiv.style.bottom = '20px';
-      notificationDiv.style.right = '20px';
-      notificationDiv.style.padding = '10px 15px';
-      notificationDiv.style.backgroundColor = '#4CAF50';
-      notificationDiv.style.color = 'white';
-      notificationDiv.style.borderRadius = '5px';
-      notificationDiv.style.zIndex = '10000';
-      notificationDiv.style.boxShadow = '0 2px 5px rgba(0,0,0,0.2)';
-      notificationDiv.textContent = `Uploading ${accumulatedComments.length} comments...`;
-      document.body.appendChild(notificationDiv);
-      
-      // Send to background script to make API call
-      chrome.runtime.sendMessage({
-        action: "callAPI",
-        endpoint: "comments",
-        data: formattedData
-      }, response => {
-        console.log("Comment upload response:", response);
-        
-        // Update notification
-        if (response && response.success) {
-          notificationDiv.textContent = `Successfully uploaded ${accumulatedComments.length} comments`;
-          notificationDiv.style.backgroundColor = '#4CAF50'; // Green
-        } else {
-          notificationDiv.textContent = 'Failed to upload comments';
-          notificationDiv.style.backgroundColor = '#F44336'; // Red
-        }
-        
-        // Remove notification after a delay
-        setTimeout(() => {
-          if (notificationDiv.parentNode) {
-            notificationDiv.parentNode.removeChild(notificationDiv);
-          }
-        }, 3000);
-      });
-    }
-    
-    // Reset accumulated comments after processing
-    resetAccumulatedComments();
-    console.log("URL changed, comments cleared");
+    // Handle URL change via the common handler
+    handleUrlChange(message);
     
     // Send response to confirm receipt
     if (sendResponse) sendResponse({ status: "Comments cleared" });
@@ -401,5 +441,6 @@ window.CommentExtractor = {
   extractPageMetadata,
   resetAccumulatedComments,
   formatCommentsForUpload,
+  handleUrlChange,
   COMMENT_SELECTORS
 };

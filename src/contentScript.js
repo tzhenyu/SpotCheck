@@ -142,7 +142,7 @@ function showCommentsOverlay(comments) {
       if (result.message.includes("API key")) {
         // Show notification about setting API key in popup
         const errorDiv = ShopeeHelpers.createErrorOverlay("Please set your Gemini API key in the extension popup.");
-        document.body.appendChild(errorDiv);
+        // document.body.appendChild(errorDiv);
         
         // Remove error after 5 seconds
         setTimeout(() => {
@@ -190,19 +190,21 @@ function debouncedProcessComments() {
 // Process comments with API key check
 async function processCommentsWithApiKeyCheck(comments) {
   try {
-    // Check if we have a stored API key first
+    // Always extract and store detailed comments whether we have an API key or not
+    const extractedComments = window.ShopeeHelpers.extractDetailedCommentData();
+      
+    // Store the comments in memory for later if popup is opened or for database upload
+    window.extractedCommentsCache = extractedComments;
+    console.log(`Extracted ${extractedComments.length} comments (stored for later use)`);
+    
+    // Check if we have a stored API key for analysis
     const apiKey = await window.DirectGeminiAPI.getStoredApiKey();
     if (apiKey) {
-      // If we have an API key, proceed with normal processing
+      // If we have an API key, proceed with Gemini analysis
       showCommentsOverlay(comments);
     } else {
-      // Without API key, we'll extract and store the comments but not analyze them
-      console.log("No API key found, extracting comments without analysis");
-      const extractedComments = window.ShopeeHelpers.extractDetailedCommentData();
-      
-      // Store the comments in memory for later if popup is opened
-      window.extractedCommentsCache = extractedComments;
-      console.log(`Extracted ${extractedComments.length} comments (stored for later use)`);
+      // Without API key, just keep the extracted comments for database
+      console.log("No API key found, comments extracted but not analyzed");
     }
   } catch (error) {
     console.error("Error processing comments:", error);
@@ -276,6 +278,17 @@ function checkUrlChange() {
   if (currentUrl !== window.location.href) {
     const oldUrl = currentUrl;
     currentUrl = window.location.href;
+    
+    // Trigger upload of any existing comments before resetting
+    if (window.CommentExtractor) {
+      window.CommentExtractor.handleUrlChange({
+        action: "urlChanged", 
+        oldUrl,
+        newUrl: currentUrl,
+        uploadComments: true
+      });
+    }
+    
     // Reset tracking when URL changes
     analyzedComments.clear();
     window.extractedCommentsCache = [];
@@ -469,12 +482,15 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     window.extractedCommentsCache = [];
     analyzedComments.clear();
     
-    // If auto-upload is enabled, handle comment upload
-    if (request.uploadComments) {
-      // Let the comment extractor handle the upload
-      // It already has all the accumulated comments
-      // Sending a response will happen in the extractor's handler
+    // Forward the URL change message to the CommentExtractor to handle uploads
+    // We need to do this even when Gemini analysis is enabled
+    if (window.CommentExtractor) {
+      // Make sure we're setting uploadComments to true
+      const urlChangeRequest = {...request, uploadComments: true};
+      // The CommentExtractor will handle comment uploads if enabled
+      window.CommentExtractor.handleUrlChange(urlChangeRequest);
     }
+    
     sendResponse({ success: true });
     return true;
   }
