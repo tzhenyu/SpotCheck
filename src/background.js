@@ -1,4 +1,10 @@
+/**
+ * Background script for Shopee Comment Extractor
+ * Handles URL change detection and tab events
+ */
+
 const API_BASE_URL = "http://127.0.0.1:8000";
+let currentUrl = "";
 
 // Check if the URL is a Shopee product page
 function isShopeeProductPage(url) {
@@ -85,6 +91,47 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       });
     
     return true; // Keep the message channel open for async response
+  }
+});
+
+// Listen for tab updates
+chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+  // Check if URL has changed and is fully loaded
+  if (changeInfo.status === 'complete' && tab.url !== currentUrl) {
+    const oldUrl = currentUrl;
+    currentUrl = tab.url;
+    
+    // Only notify about URL changes if old URL was non-empty
+    if (oldUrl) {
+      // Notify content script about URL change
+      chrome.tabs.sendMessage(tabId, { action: "urlChanged", oldUrl, newUrl: currentUrl })
+        .catch(err => console.log("Content script not ready yet"));
+      
+      // Notify popup if it's open
+      chrome.runtime.sendMessage({ action: "urlChanged", oldUrl, newUrl: currentUrl })
+        .catch(err => console.log("Popup not open"));
+    }
+  }
+});
+
+// Listen for tab activation changes
+chrome.tabs.onActivated.addListener(async (activeInfo) => {
+  try {
+    const tab = await chrome.tabs.get(activeInfo.tabId);
+    if (tab.url !== currentUrl) {
+      const oldUrl = currentUrl;
+      currentUrl = tab.url;
+      
+      // Notify content script about URL change
+      chrome.tabs.sendMessage(activeInfo.tabId, { action: "urlChanged", oldUrl, newUrl: currentUrl })
+        .catch(err => console.log("Content script not ready yet"));
+      
+      // Notify popup if it's open
+      chrome.runtime.sendMessage({ action: "urlChanged", oldUrl, newUrl: currentUrl })
+        .catch(err => console.log("Popup not open"));
+    }
+  } catch (error) {
+    console.error("Error handling tab activation:", error);
   }
 });
 

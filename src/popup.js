@@ -44,6 +44,10 @@ function loadApiKey() {
               extractComments();
             }
           });
+        } else {
+          // Clear comments when not on a Shopee page
+          clearComments();
+          showStatus('Not on a Shopee page', 'error');
         }
       });
     });
@@ -51,6 +55,22 @@ function loadApiKey() {
     console.error('Failed to load API key:', error);
     showStatus('Failed to load API key', 'error');
   }
+}
+
+// Clear stored comments and reset UI
+function clearComments() {
+  storedComments = [];
+  commentsList.innerHTML = '';
+  if (commentCount) {
+    commentCount.textContent = '0';
+  }
+  
+  // Add instruction message when no comments
+  const commentContainer = document.createElement('div');
+  commentContainer.className = 'comment-item';
+  commentContainer.innerHTML = '<div class="comment-text">Please navigate to a Shopee product page to extract comments.</div>';
+  commentsList.appendChild(commentContainer);
+  commentsContainer.classList.remove('hidden');
 }
 
 // Save API key to storage
@@ -524,4 +544,12 @@ uploadSqlButton.addEventListener('click', uploadCommentsToSql);
 // Initialize popup
 document.addEventListener('DOMContentLoaded', () => {
   loadApiKey();
+  
+  // Listen for URL change messages from background script
+  chrome.runtime.onMessage.addListener((message) => {
+    if (message.action === "urlChanged") {
+      clearComments();
+      showStatus('Page changed, comments cleared', 'success');
+    }
+  });
 });

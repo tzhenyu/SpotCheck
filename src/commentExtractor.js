@@ -274,11 +274,31 @@ function extractPageMetadata() {
   };
 }
 
+/**
+ * Resets accumulated comments
+ */
+function resetAccumulatedComments() {
+  accumulatedComments = [];
+  return [];
+}
+
+// Listen for messages from background script
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (message.action === "urlChanged") {
+    resetAccumulatedComments();
+    console.log("URL changed, comments cleared");
+    // Send response to confirm receipt
+    if (sendResponse) sendResponse({ status: "Comments cleared" });
+  }
+  return true;
+});
+
 // Export functions to global scope for use in other scripts
 window.CommentExtractor = {
   extractAllComments,
   waitForComments,
   extractStarRating,
   extractPageMetadata,
+  resetAccumulatedComments,
   COMMENT_SELECTORS
 };
