@@ -7,6 +7,8 @@ from typing import List, Dict
 import asyncio
 from google import genai
 import os
+import re
+import datetime
 from dotenv import load_dotenv
 import psycopg2
 from psycopg2.extras import RealDictCursor
@@ -27,6 +29,29 @@ DB_CONFIG = {
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+def clean_timestamp(timestamp_str):
+    """
+    Clean and format timestamp string for PostgreSQL.
+    Extracts proper timestamp from various string formats.
+    Returns None for invalid formats.
+    """
+    if not timestamp_str:
+        return None
+        
+    # Extract timestamp in format YYYY-MM-DD HH:MM
+    timestamp_match = re.search(r'(\d{4}-\d{2}-\d{2}\s\d{2}:\d{2})', timestamp_str)
+    if timestamp_match:
+        # Return PostgreSQL-compatible timestamp
+        try:
+            timestamp = timestamp_match.group(1)
+            # Validate by parsing
+            datetime.datetime.strptime(timestamp, '%Y-%m-%d %H:%M')
+            return timestamp
+        except ValueError:
+            return None
+    
+    return None
 
 # Configure Gemini API with API key
 API_KEY = os.getenv("GEMINI_API_KEY")
@@ -222,23 +247,37 @@ async def process_comments(data: CommentData):
             # Create a more efficient bulk insert
             insert_values = []
             for item in data.metadata:
+                # Clean and format the timestamp for database insertion
+                raw_timestamp = item.get('timestamp')
+                clean_ts = clean_timestamp(raw_timestamp)
+                
                 insert_values.append((
                     item.get('comment'), 
                     item.get('username'), 
                     item.get('rating'), 
                     item.get('source'), 
                     item.get('product'), 
-                    item.get('timestamp')
+                    clean_ts  # Use cleaned timestamp
                 ))
             
             # Use executemany for better performance with large datasets
+            # Filter out rows with NULL timestamps to avoid database errors
+            valid_values = [row for row in insert_values if row[5] is not None]
+            
+            if not valid_values:
+                logger.warning("No valid timestamps found in any comments, skipping database insertion")
+                return {
+                    "message": "No valid timestamps found in comments, nothing stored", 
+                    "total_stored": 0
+                }
+            
             cursor.executemany(
                 """
                 INSERT INTO product_reviews (comment, username, rating, source, product, page_timestamp)
                 VALUES (%s, %s, %s, %s, %s, %s)
                 ON CONFLICT DO NOTHING
                 """, 
-                insert_values
+                valid_values
             )
             
             conn.commit()

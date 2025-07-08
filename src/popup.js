@@ -6,6 +6,9 @@
 const API_KEY_STORAGE_KEY = "gemini_api_key";
 // Add the backend API URL constant
 const BACKEND_API_URL = "http://localhost:8000";
+// Auto features are always enabled (no toggles)
+const AUTO_EXTRACT_STORAGE_KEY = "auto_extract_enabled";
+const AUTO_UPLOAD_STORAGE_KEY = "auto_upload_enabled";
 
 // DOM Elements
 const apiKeyInput = document.getElementById('api-key');
@@ -39,8 +42,23 @@ function loadApiKey() {
         if (tabs[0] && tabs[0].url && tabs[0].url.includes('shopee.')) {
           // Check if we need to manually trigger extraction or just display already processed comments
           chrome.tabs.sendMessage(tabs[0].id, { action: "getProcessedComments" }, (response) => {
-            if (chrome.runtime.lastError || !response || !response.hasProcessedComments) {
-              // If comments haven't been processed yet, extract them now
+            if (chrome.runtime.lastError) {
+              console.error("Error communicating with content script:", chrome.runtime.lastError);
+              extractComments();
+              return;
+            }
+            
+            // If we have cached comments from auto-extraction, display them
+            if (response && response.cachedComments && response.cachedComments.length > 0) {
+              console.log("Using cached comments from auto-extraction");
+              displayComments(response.cachedComments, false);
+            } 
+            // If there are processed comments on the page already, don't extract again
+            else if (response && response.hasProcessedComments) {
+              console.log("Comments already processed on this page");
+            } 
+            // Otherwise extract comments now
+            else {
               extractComments();
             }
           });
@@ -54,6 +72,21 @@ function loadApiKey() {
   } catch (error) {
     console.error('Failed to load API key:', error);
     showStatus('Failed to load API key', 'error');
+  }
+}
+
+// Set auto-extract to always be enabled
+function ensureAutoFeaturesEnabled() {
+  try {
+    // Always set both auto features to true
+    chrome.storage.local.set({ 
+      [AUTO_EXTRACT_STORAGE_KEY]: true,
+      [AUTO_UPLOAD_STORAGE_KEY]: true 
+    }, () => {
+      console.log('Auto-extract and auto-upload features are enabled');
+    });
+  } catch (error) {
+    console.error('Error ensuring auto features are enabled:', error);
   }
 }
 
@@ -566,6 +599,8 @@ function updateCommentsWithAnalysis(results, offset = 0) {
   }
 }
 
+// Nothing needed to replace the removed toggle functions
+
 // Event listeners
 saveButton.addEventListener('click', saveApiKey);
 clearButton.addEventListener('click', clearApiKey);
@@ -576,6 +611,7 @@ uploadSqlButton.addEventListener('click', uploadCommentsToSql);
 // Initialize popup
 document.addEventListener('DOMContentLoaded', () => {
   loadApiKey();
+  ensureAutoFeaturesEnabled();
   
   // Listen for URL change messages from background script
   chrome.runtime.onMessage.addListener((message) => {

@@ -6,6 +6,10 @@
 const API_BASE_URL = "http://127.0.0.1:8000";
 let currentUrl = "";
 
+// Storage keys
+const AUTO_UPLOAD_STORAGE_KEY = "auto_upload_enabled";
+const AUTO_EXTRACT_STORAGE_KEY = "auto_extract_enabled";
+
 // Check if the URL is a Shopee product page
 function isShopeeProductPage(url) {
   if (!url) return false;
@@ -44,7 +48,6 @@ async function callAPI(endpoint, data = null) {
   }
 }
 
-const AUTO_EXTRACT_STORAGE_KEY = "auto_extract_enabled";
 
 // Listen for tab updates to detect when a user navigates to a Shopee product page
 chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
@@ -103,13 +106,22 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
     
     // Only notify about URL changes if old URL was non-empty
     if (oldUrl) {
-      // Notify content script about URL change
-      chrome.tabs.sendMessage(tabId, { action: "urlChanged", oldUrl, newUrl: currentUrl })
-        .catch(err => console.log("Content script not ready yet"));
-      
-      // Notify popup if it's open
-      chrome.runtime.sendMessage({ action: "urlChanged", oldUrl, newUrl: currentUrl })
-        .catch(err => console.log("Popup not open"));
+      // Check if auto-upload is enabled
+      chrome.storage.local.get([AUTO_UPLOAD_STORAGE_KEY], (result) => {
+        const isAutoUploadEnabled = result[AUTO_UPLOAD_STORAGE_KEY] !== false; // Default to true if not set
+        
+        // Always notify content script about URL change, with flag for auto-upload
+        chrome.tabs.sendMessage(tabId, { 
+          action: "urlChanged", 
+          oldUrl, 
+          newUrl: currentUrl, 
+          uploadComments: isAutoUploadEnabled
+        }).catch(err => console.log("Content script not ready yet"));
+        
+        // Notify popup if it's open
+        chrome.runtime.sendMessage({ action: "urlChanged", oldUrl, newUrl: currentUrl })
+          .catch(err => console.log("Popup not open"));
+      });
     }
   }
 });
@@ -122,9 +134,17 @@ chrome.tabs.onActivated.addListener(async (activeInfo) => {
       const oldUrl = currentUrl;
       currentUrl = tab.url;
       
-      // Notify content script about URL change
-      chrome.tabs.sendMessage(activeInfo.tabId, { action: "urlChanged", oldUrl, newUrl: currentUrl })
-        .catch(err => console.log("Content script not ready yet"));
+      // Check if auto-upload is enabled
+      const result = await chrome.storage.local.get([AUTO_UPLOAD_STORAGE_KEY]);
+      const isAutoUploadEnabled = result[AUTO_UPLOAD_STORAGE_KEY] !== false; // Default to true if not set
+      
+      // Always notify content script about URL change, with flag for auto-upload
+      chrome.tabs.sendMessage(activeInfo.tabId, { 
+        action: "urlChanged", 
+        oldUrl, 
+        newUrl: currentUrl, 
+        uploadComments: isAutoUploadEnabled 
+      }).catch(err => console.log("Content script not ready yet"));
       
       // Notify popup if it's open
       chrome.runtime.sendMessage({ action: "urlChanged", oldUrl, newUrl: currentUrl })
