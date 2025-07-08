@@ -178,24 +178,50 @@ function isCensoredUsername(container) {
  */
 function extractTimestamp(container) {
   const timestampElement = container.querySelector(COMMENT_SELECTORS.TIMESTAMP);
-  if (!timestampElement) return 'Unknown time';
+  if (!timestampElement) return { timestamp: 'Unknown time', variation: '', raw: 'Unknown time' };
   
   const rawText = timestampElement.textContent.trim();
   
-  // Use indexOf instead of split to ensure we get the exact index of the delimiter
-  const delimiterIndex = rawText.indexOf('|');
+  // Regular expression to find timestamp in format "YYYY-MM-DD HH:MM"
+  const timestampRegex = /(\d{4}-\d{2}-\d{2}\s\d{2}:\d{2})/;
+  const match = rawText.match(timestampRegex);
   
-  if (delimiterIndex !== -1) {
-    return {
-      timestamp: rawText.substring(0, delimiterIndex).trim(),
-      variation: rawText.substring(delimiterIndex + 1).trim(), // Get everything after the | character
-      raw: rawText
-    };
+  if (match && match[1]) {
+    // We found a timestamp in the required format
+    const timestamp = match[1];
+    
+    // Check if this is the "timestamp | Variation" format
+    if (rawText.includes('Variation:')) {
+      const parts = rawText.split('|');
+      return {
+        timestamp: timestamp,
+        variation: parts.length > 1 ? parts[1].replace('Variation:', '').trim() : '',
+        raw: rawText
+      };
+    } 
+    // Check if this is the "Location | timestamp" format
+    else if (rawText.includes('|')) {
+      const parts = rawText.split('|');
+      return {
+        timestamp: timestamp,
+        variation: '',  // No variation in this format
+        location: parts[0].trim(),
+        raw: rawText
+      };
+    }
+    // Just the timestamp with no other information
+    else {
+      return {
+        timestamp: timestamp,
+        variation: '',
+        raw: rawText
+      };
+    }
   }
   
-  // If no | delimiter found, return the original text as timestamp
+  // If no match found, return the original text
   return {
-    timestamp: rawText,
+    timestamp: '',
     variation: '',
     raw: rawText
   };
