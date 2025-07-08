@@ -48,9 +48,7 @@ INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
 4. Click the "extract all pages (30)" buttons
 5. it will automatically navigate comment page, let it sit, dont do anything
 6. After it stopped, means its done. 
-7. Click the extension to close it, click again to reopen it.
 8. There's a "upload to sql server" button. Click it
 9. If there's a successful message, you are done!
 
-#### WHEN GOING TO ANOTHER PRODUCT, PLEASE RELOAD THE PAGE, HAVE TO CLEAR OUT THE COMMENT FIRST
 #### Repeat it for 15 different pages
