@@ -32,6 +32,8 @@ function extractCurrentPageComments() {
     
     if (commentContainer) {
       const commentText = commentElement.textContent.trim();
+      // Skip comments with less than 3 words
+      if (commentText.split(/\s+/).length < 3) return;
       const username = extractUsername(commentContainer);
       const timestampData = extractTimestamp(commentContainer);
       const starRating = extractStarRating(commentContainer);
