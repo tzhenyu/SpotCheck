@@ -69,7 +69,7 @@ if __name__ == "__main__":
     # 🔁 Connect to remote and local DBs
     remote_conn = psycopg2.connect(**remote_config)
 
-    TABLE_NAME = "product_reviews"
+    TABLE_NAME = "test_product"
     
     try:
         # Call clone_table with the specified table name
