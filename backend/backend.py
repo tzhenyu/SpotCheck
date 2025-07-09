@@ -277,6 +277,15 @@ async def analyze_comments(data: CommentData):
         "results": results
     }
 
+def get_suspicious_comments_from_analysis(analysis_results: List[Dict]) -> List[Dict]:
+    """Return comments with 'Suspicious' verdict from analyze_comments_batch_ollama results."""
+    suspicious_comments = []
+    for result in analysis_results:
+        explanation = result.get("explanation", "").lower()
+        if explanation.startswith("suspicious"):
+            suspicious_comments.append(result)
+    return suspicious_comments
+
 
 if __name__ == "__main__":
     import uvicorn
