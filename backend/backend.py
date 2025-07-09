@@ -12,7 +12,7 @@ from dotenv import load_dotenv
 import psycopg2
 from psycopg2.extras import RealDictCursor
 import requests
-
+import uvicorn
 
 # Load environment variables from .env file
 load_dotenv()
@@ -89,41 +89,14 @@ async def root():
     response.headers["Access-Control-Allow-Origin"] = "*"
     return response
 
-async def analyze_comment_with_ollama(comment: str, prompt: str = None) -> Dict:
-    """Process a single comment with Ollama API"""
-    try:
-        if prompt is None:
-            prompt = "For the following review, respond ONLY with 'REAL' or 'FAKE' and a brief reason (do not repeat the review text). Example: REAL (reason) or FAKE (reason). Review: '" + comment + "'"
-        response = requests.post(
-            "http://localhost:11434/api/generate",
-            json={
-                "model": "llama3:instruct",
-                "prompt": prompt,
-                "stream": False
-            },
-            timeout=30
-        )
-        response.raise_for_status()
-        result_json = response.json()
-        result_text = result_json.get("response", "").strip()
-        is_fake = "fake" in result_text.lower()
-        return {
-            "comment": comment[:50] + "..." if len(comment) > 50 else comment,
-            "is_fake": is_fake,
-            "explanation": result_text
-        }
-    except Exception as e:
-        logger.error(f"Error analyzing comment with Ollama: {str(e)}")
-        return {
-            "comment": comment[:50] + "..." if len(comment) > 50 else comment,
-            "is_fake": None,
-            "explanation": f"Error: {str(e)}"
-        }
-
 async def analyze_comments_batch_ollama(comments: List[str], prompt: str = None) -> List[Dict]:
     """Process multiple comments in a single Ollama API call"""
     try:
-        base_prompt = prompt if prompt else "For each product review below, respond ONLY with 'REAL' or 'FAKE' and a brief reason (do not repeat the review text). Example: REAL (reason) or FAKE (reason). Format your response as a numbered list matching the order of reviews.\n\n"
+        base_prompt = prompt if prompt else (
+            "For each product review below, respond ONLY with 'REAL' or 'FAKE' and a brief reason in English. "
+            "Do not mention the language of the review. Do not repeat the review text. "
+            "Example: REAL (reason) or FAKE (reason). Format your response as a numbered list matching the order of reviews.\n\n"
+        )
         for i, comment in enumerate(comments, 1):
             base_prompt += f"{i}. Review: '{comment}'\n"
         response = requests.post(
@@ -281,17 +254,17 @@ async def analyze_comments(data: CommentData):
     logger.info(f"Received {len(data.comments)} comments")
     comments_to_process = data.comments[:6]
     prompt = data.prompt
-    if len(comments_to_process) <= 1:
-        results = []
-        for comment in comments_to_process:
-            logger.info(f"Analyzing individual comment: {comment[:50]}...")
-            result = await analyze_comment_with_ollama(comment)
-            results.append(result)
-    else:
-        logger.info(f"Batch analyzing {len(comments_to_process)} comments with Ollama...")
-        results = await analyze_comments_batch_ollama(comments_to_process, prompt=prompt)
+
+    logger.info(f"Batch analyzing {len(comments_to_process)} comments with Ollama...")
+    results = await analyze_comments_batch_ollama(comments_to_process, prompt=prompt)
     logger.info(f"Completed analysis of {len(results)} comments")
     return {
         "message": f"Processed {len(results)} comments",
         "results": results
     }
+
+
+if __name__ == "__main__":
+    import uvicorn
+    logger.info("Starting API server on http://127.0.0.1:8000")
+    uvicorn.run(app, host="0.0.0.0", port=8000, reload=True)
