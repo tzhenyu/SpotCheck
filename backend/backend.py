@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 import logging
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
-from typing import List, Dict
+from typing import List, Dict, Optional
 import asyncio
 from google import genai
 import os
@@ -59,14 +59,14 @@ if not API_KEY:
     logger.error("GEMINI_API_KEY environment variable not set")
     raise ValueError("GEMINI_API_KEY environment variable is required")
 
-# Initialize Gemini client with API key
-client = genai.Client(api_key=API_KEY)
+# Initialize Gemini model name
 gemini_model = "gemini-2.0-flash"
 
 # Create data models
 class CommentData(BaseModel):
     comments: List[str]
     metadata: List[Dict] = None
+    prompt: Optional[str] = None
 
 # Create FastAPI application
 app = FastAPI()
@@ -125,60 +125,77 @@ async def analyze_comment_with_gemini(comment: str) -> Dict:
             "explanation": f"Error: {str(e)}"
         }
 
-async def analyze_comments_batch(comments: List[str]) -> List[Dict]:
-    """Process multiple comments in a single Gemini API call"""
+async def analyze_comments_batch(comments: List[str], api_key: str = None, product_name: str = None, prompt: str = None) -> List[Dict]:
+    """Process multiple comments in a single Gemini API call with optional API key and product context"""
     try:
-        # Format all comments into a single prompt
-        prompt = "Analyze each product review below and determine if it's real or fake.\n"
-        prompt += "For each review, respond with REAL or FAKE followed by a brief explanation (15 words max).\n"
-        prompt += "Format your response as numbered list matching the order of reviews:\n\n"
+        # Use provided API key or use the default one
+        current_api_key = api_key if api_key is not None else API_KEY
         
-        for i, comment in enumerate(comments, 1):
-            prompt += f"{i}. Review: '{comment}'\n"
+        # Initialize Gemini client with the selected API key
+        temp_client = genai.Client(api_key=current_api_key)
+        
+        # Format all comments into a single prompt
+        full_prompt = prompt if prompt else ""
+        
+        # Add product context if available
+        if product_name and not prompt:
+            full_prompt += f"Product name: {product_name}\n"
+            
+        # Base analysis instructions
+        if not prompt:
+            full_prompt += "Analyze each product review below and determine if it's real or fake.\n"
+            full_prompt += "For each review, respond with REAL or FAKE followed by a brief explanation (15 words max).\n"
+            full_prompt += "Format your response as numbered list matching the order of reviews:\n\n"
+            for i, comment in enumerate(comments, 1):
+                full_prompt += f"{i}. Review: '{comment}'\n"
+        else:
+            for i, comment in enumerate(comments, 1):
+                full_prompt += f"{i}. Review: '{comment}'\n"
         
         # Make a single API call for all comments
         response = await asyncio.to_thread(
-            client.models.generate_content,
+            temp_client.models.generate_content,
             model=gemini_model,
-            contents=prompt
+            contents=full_prompt
         )
         
-        result_text = response.text.strip()
-        
-        # Parse the response to extract results for each comment
-        lines = result_text.split('\n')
-        results = []
-        
-        current_index = 0
-        for i, comment in enumerate(comments):
-            # Look for lines containing the comment number
-            result_line = ""
-            for j in range(current_index, len(lines)):
-                if lines[j].strip().startswith(f"{i+1}."):
-                    result_line = lines[j].strip()
-                    current_index = j + 1
-                    break
-            
-            # If no specific line found, use a default message
-            if not result_line:
-                results.append({
+        try:
+            result_text = response.candidates[0].content.parts[0].text.strip()
+        except Exception as e:
+            logger.error(f"Gemini API response parsing error: {str(e)} | Raw response: {response}")
+            return [
+                {
                     "comment": comment[:50] + "..." if len(comment) > 50 else comment,
                     "is_fake": None,
-                    "explanation": "Unable to determine from batch analysis"
-                })
-                continue
-            
-            # Extract REAL/FAKE status and explanation
-            is_fake = "fake" in result_line.lower()
-            
-            # Clean up the explanation by removing redundant REAL/FAKE prefixes
-            explanation = result_line.replace(f"{i+1}.", "").strip()
-            # Remove redundant REAL: or FAKE: prefix if it appears twice
-            if is_fake and explanation.lower().startswith("fake:"):
-                explanation = explanation.replace("FAKE:", "", 1).replace("Fake:", "", 1).replace("fake:", "", 1).strip()
-            elif not is_fake and explanation.lower().startswith("real:"):
-                explanation = explanation.replace("REAL:", "", 1).replace("Real:", "", 1).replace("real:", "", 1).strip()
-            
+                    "explanation": f"Gemini API response parsing error: {str(e)}"
+                }
+                for comment in comments
+            ]
+        
+        lines = [line.strip() for line in result_text.split('\n') if line.strip()]
+        results = []
+        comment_map = {}
+        for line in lines:
+            for i in range(1, len(comments) + 1):
+                if line.startswith(f"{i}."):
+                    comment_map[i-1] = line
+                    break
+        
+        for idx, comment in enumerate(comments):
+            if idx in comment_map:
+                result_line = comment_map[idx]
+                is_fake = "fake" in result_line.lower()
+                explanation = result_line
+                explanation = re.sub(r'^\d+\.\s*', '', explanation)
+                if is_fake:
+                    explanation = re.sub(r'^(FAKE|Fake|fake):\s*', '', explanation)
+                else:
+                    explanation = re.sub(r'^(REAL|Real|real):\s*', '', explanation)
+                explanation = explanation.strip()
+            else:
+                logger.error(f"No matching line for comment index {idx}: {comment}")
+                is_fake = None
+                explanation = "No analysis result returned for this comment"
             results.append({
                 "comment": comment[:50] + "..." if len(comment) > 50 else comment,
                 "is_fake": is_fake,
@@ -188,7 +205,6 @@ async def analyze_comments_batch(comments: List[str]) -> List[Dict]:
         return results
     except Exception as e:
         logger.error(f"Error in batch analysis with Gemini: {str(e)}")
-        # Return error results for all comments
         return [
             {
                 "comment": comment[:50] + "..." if len(comment) > 50 else comment,
@@ -308,7 +324,7 @@ async def analyze_comments(data: CommentData):
     
     # Process up to 6 comments to avoid rate limits
     comments_to_process = data.comments[:6]
-    
+    prompt = data.prompt
     if len(comments_to_process) <= 1:
         # For single comment, use the individual processing
         results = []
@@ -319,7 +335,10 @@ async def analyze_comments(data: CommentData):
     else:
         # For multiple comments, use batch processing
         logger.info(f"Batch analyzing {len(comments_to_process)} comments...")
-        results = await analyze_comments_batch(comments_to_process)
+        if prompt:
+            results = await analyze_comments_batch(comments_to_process, product_name=None, api_key=None, prompt=prompt)
+        else:
+            results = await analyze_comments_batch(comments_to_process, product_name="Shopee Product")
     
     logger.info(f"Completed analysis of {len(results)} comments")
     return {

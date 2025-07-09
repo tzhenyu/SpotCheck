@@ -152,6 +152,72 @@ async function analyzeCommentsDirectly(comments, apiKey = null, productName = nu
 }
 
 /**
+ * Analyze comments using Python backend
+ * @param {string[]} comments - Array of comments to analyze
+ * @param {string} prompt - Optional prompt to send to backend
+ * @returns {Promise<object>} Analysis results
+ */
+async function analyzeCommentsWithPythonBackend(comments, prompt = null) {
+  try {
+    const body = { comments };
+    if (prompt) body.prompt = prompt;
+    const response = await fetch("http://127.0.0.1:8000/analyze", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify(body)
+    });
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`Python backend error (${response.status}): ${errorText}`);
+    }
+    const data = await response.json();
+    if (!data || !data.results) {
+      return {
+        error: true,
+        message: "No results returned from backend"
+      };
+    }
+    // Parse results to match analyzeCommentsDirectly output
+    const results = [];
+    for (let i = 0; i < comments.length; i++) {
+      const backendResult = data.results[i] || {};
+      results.push({
+        comment: backendResult.comment || (comments[i].length > 50 ? comments[i].substring(0, 50) + "..." : comments[i]),
+        is_fake: backendResult.is_fake,
+        explanation: backendResult.explanation || ""
+      });
+    }
+    return {
+      message: data.message || `Processed ${results.length} comments`,
+      results: results
+    };
+  } catch (error) {
+    console.error("Error analyzing comments with Python backend:", error);
+    return {
+      error: true,
+      message: `Python backend error: ${error.message || "Unknown error"}`
+    };
+  }
+}
+
+// Function to analyze comments using Python backend only
+async function analyzeCommentsWithBackendOnly(comments, productName = null) {
+  try {
+    // Optionally include productName in prompt for backend context
+    let prompt = null;
+    if (productName) {
+      prompt = `Product name: ${productName}\nAnalyze each product review below and determine if it's real or fake. For each review, respond with REAL or FAKE followed by a brief explanation (15 words max). Format your response as numbered list matching the order of reviews.`;
+    }
+    return await window.DirectGeminiAPI.analyzeCommentsWithPythonBackend(comments, prompt);
+  } catch (error) {
+    console.error("Error analyzing with backend only:", error);
+    return { message: `Backend Analysis Error: ${error.message}`, error: true };
+  }
+}
+
+/**
  * Prompt user for API key
  * @returns {Promise<string|null>} API key or null if cancelled
  */
@@ -170,6 +236,8 @@ async function promptForApiKey() {
 // Export functions
 window.DirectGeminiAPI = {
   analyzeCommentsDirectly,
+  analyzeCommentsWithPythonBackend,
   getStoredApiKey,
-  storeApiKey
+  storeApiKey,
+  analyzeCommentsWithBackendOnly
 };

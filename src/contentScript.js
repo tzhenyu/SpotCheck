@@ -131,35 +131,21 @@ function showCommentsOverlay(comments) {
     productName = productNameElement.textContent.trim();
   }
   
-  // Call Gemini API instead of server API
-  analyzeCommentsWithGemini(comments, productName).then(result => {
+  // Always use backend for analysis
+  window.DirectGeminiAPI.analyzeCommentsWithBackendOnly(comments, productName).then(result => {
     // Remove loading overlay when done
     logDiv.remove();
     isApiCallInProgress = false;
     
     if (result.error) {
-      // Check if it's an API key issue
-      if (result.message.includes("API key")) {
-        // Show notification about setting API key in popup
-        const errorDiv = ShopeeHelpers.createErrorOverlay("Please set your Gemini API key in the extension popup.");
-        // document.body.appendChild(errorDiv);
-        
-        // Remove error after 5 seconds
-        setTimeout(() => {
-          if (errorDiv && errorDiv.parentNode) {
-            errorDiv.parentNode.removeChild(errorDiv);
-          }
-        }, 5000);
-      } else {
-        // Show error in small overlay using helper
-        const errorDiv = ShopeeHelpers.createErrorOverlay(result.message);
-        document.body.appendChild(errorDiv);
-        
-        // Remove error after 5 seconds
-        setTimeout(() => {
-          if (errorDiv.parentNode) errorDiv.remove();
-        }, 5000);
-      }
+      // Show error in small overlay using helper
+      const errorDiv = ShopeeHelpers.createErrorOverlay(result.message);
+      document.body.appendChild(errorDiv);
+      
+      // Remove error after 5 seconds
+      setTimeout(() => {
+        if (errorDiv.parentNode) errorDiv.remove();
+      }, 5000);
     } else {
       // Store results for reuse
       analyzedComments.set(commentsHash, result);
@@ -172,43 +158,81 @@ function showCommentsOverlay(comments) {
 // Debounced function to process comments
 function debouncedProcessComments() {
   if (apiCallTimer) clearTimeout(apiCallTimer);
-  
   apiCallTimer = setTimeout(() => {
-    // Give the DOM a moment to fully update (especially for pagination)
     setTimeout(() => {
       const comments = ShopeeHelpers.extractShopeeCommentTexts();
       if (comments && comments.length > 0) {
         console.log(`Processing ${comments.length} comments after pagination or DOM change`);
-        processCommentsWithApiKeyCheck(comments);
+        // Directly call showCommentsOverlay, skip API key check
+        // Also update extractedCommentsCache for later use
+        window.extractedCommentsCache = window.ShopeeHelpers.extractDetailedCommentData();
+        showCommentsOverlay(comments);
       } else {
         console.log('No comments found to process');
       }
-    }, 200); // Small additional delay for pagination rendering
+    }, 200);
   }, DEBOUNCE_DELAY);
 }
 
-// Process comments with API key check
-async function processCommentsWithApiKeyCheck(comments) {
-  try {
-    // Always extract and store detailed comments whether we have an API key or not
-    const extractedComments = window.ShopeeHelpers.extractDetailedCommentData();
-      
-    // Store the comments in memory for later if popup is opened or for database upload
-    window.extractedCommentsCache = extractedComments;
-    console.log(`Extracted ${extractedComments.length} comments (stored for later use)`);
-    
-    // Check if we have a stored API key for analysis
-    const apiKey = await window.DirectGeminiAPI.getStoredApiKey();
-    if (apiKey) {
-      // If we have an API key, proceed with Gemini analysis
-      showCommentsOverlay(comments);
-    } else {
-      // Without API key, just keep the extracted comments for database
-      console.log("No API key found, comments extracted but not analyzed");
-    }
-  } catch (error) {
-    console.error("Error processing comments:", error);
+function showCommentsOverlay(comments) {
+  // Don't process if no comments
+  if (!comments.length) return;
+  
+  // Check if these comments have already been processed
+  const commentsHash = comments.join('|');
+  
+  // If already analyzed, display the cached results and return
+  if (analyzedComments.has(commentsHash)) {
+    displayResultsInComments(analyzedComments.get(commentsHash));
+    return;
   }
+  
+  // Don't proceed if an API call is already in progress
+  if (isApiCallInProgress) return;
+  
+  // Mark as in progress
+  isApiCallInProgress = true;
+  
+  // Flag to track if we're making DOM changes to prevent observer loop
+  window.isUpdatingCommentDOM = true;
+
+  // Remove previous overlay if exists
+  let logDiv = document.getElementById('shopee-comments-overlay');
+  if (logDiv) logDiv.remove();
+
+  // Create new overlay for loading indication using helper
+  logDiv = ShopeeHelpers.createLoadingOverlay();
+  document.body.appendChild(logDiv);
+  
+  // Get product name
+  let productName = null;
+  const productNameElement = document.querySelector('h1.vR6K3w');
+  if (productNameElement) {
+    productName = productNameElement.textContent.trim();
+  }
+  
+  // Always use backend for analysis
+  window.DirectGeminiAPI.analyzeCommentsWithBackendOnly(comments, productName).then(result => {
+    // Remove loading overlay when done
+    logDiv.remove();
+    isApiCallInProgress = false;
+    
+    if (result.error) {
+      // Show error in small overlay using helper
+      const errorDiv = ShopeeHelpers.createErrorOverlay(result.message);
+      document.body.appendChild(errorDiv);
+      
+      // Remove error after 5 seconds
+      setTimeout(() => {
+        if (errorDiv.parentNode) errorDiv.remove();
+      }, 5000);
+    } else {
+      // Store results for reuse
+      analyzedComments.set(commentsHash, result);
+      // Display results in the comment divs
+      displayResultsInComments(result);
+    }
+  });
 }
 
 // Watch for changes in the comment list container
@@ -240,32 +264,26 @@ function observeShopeeComments() {
     });
   }
 
-  // Also add click event listeners to pagination buttons
-  document.addEventListener('click', (event) => {
-    // Check if the clicked element is a pagination button or inside one
-    const isPaginationButton = event.target.closest('.shopee-page-controller') || 
-                              event.target.matches('.shopee-icon-button--right') || 
-                              event.target.matches('.shopee-icon-button--left');
-    
-    if (isPaginationButton) {
-      console.log('Pagination button clicked');
-      // Add a slight delay to let the page render new comments
-      setTimeout(() => debouncedProcessComments(), 500);
-    }
-  }, true);
+  // Only add click event listener if document exists (always true in browser)
+  if (document && typeof document.addEventListener === 'function') {
+    document.addEventListener('click', (event) => {
+      const isPaginationButton = event.target.closest('.shopee-page-controller') || 
+                                event.target.matches('.shopee-icon-button--right') || 
+                                event.target.matches('.shopee-icon-button--left');
+      if (isPaginationButton) {
+        console.log('Pagination button clicked');
+        setTimeout(() => debouncedProcessComments(), 500);
+      }
+    }, true);
+  }
 
-  // Standard DOM mutation observer for the comments section
   const commentObserver = new MutationObserver(() => {
-    // Skip if we're the ones updating the DOM
     if (window.isUpdatingCommentDOM) return;
-    
     debouncedProcessComments();
   });
 
-  // Observe subtree for any change (new comments, page change, etc)
   commentObserver.observe(commentsSection, { childList: true, subtree: true });
 
-  // Initial run
   const comments = ShopeeHelpers.extractShopeeCommentTexts();
   showCommentsOverlay(comments);
 }
