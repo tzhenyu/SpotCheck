@@ -1,0 +1,8 @@
+# Testing dependencies for backend database connection tests
+pytest>=7.0.0
+pytest-asyncio>=0.21.0
+httpx>=0.24.0
+fastapi[all]>=0.68.0
+psycopg2-binary>=2.9.0
+python-dotenv>=0.19.0
+google-generativeai>=0.3.0
