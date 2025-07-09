@@ -19,8 +19,8 @@ load_dotenv()
 
 # Database configuration
 DB_CONFIG = {
-    "database": "futurehack",
-    "host": "100.97.20.73",
+    "database": "local_futurehack",
+    "host": "localhost",
     "user": "zhenyu",
     "password": "123123",
     "port": "5432"
