@@ -63,14 +63,48 @@ def clone_table(remote_conn, local_conn, table_name):
         remote_cur.execute(sql.SQL("SELECT * FROM {}").format(sql.Identifier(table_name)))
         rows = remote_cur.fetchall()
 
+        # 🔍 Step 3: Get primary key info
+        remote_cur.execute("""
+            SELECT cu.column_name
+            FROM information_schema.key_column_usage AS cu
+            JOIN information_schema.table_constraints AS tc
+                ON cu.constraint_name = tc.constraint_name
+            WHERE tc.constraint_type = 'PRIMARY KEY'
+            AND cu.table_name = %s;
+        """, (table_name,))
+        pk_columns = [row[0] for row in remote_cur.fetchall()]
+
+
+        # 🛠️ If primary key exists, use ON CONFLICT ON CONSTRAINT
+        if pk_columns:
+            # We assume PK has default name "table_pkey"
+            constraint_name = f"{table_name}_pkey"
+        else:
+            # No primary key – create a unique index on all columns
+            cols = [col[0] for col in columns]
+            index_name = f"{table_name}_unique_all"
+            index_sql = sql.SQL("CREATE UNIQUE INDEX IF NOT EXISTS {} ON {} ({});").format(
+                sql.Identifier(index_name),
+                sql.Identifier(table_name),
+                sql.SQL(', ').join(map(sql.Identifier, cols))
+            )
+            local_cur.execute(index_sql)
+            local_conn.commit()
+            constraint_name = index_name  # Use index name as conflict target
+
         # 📥 Insert data locally
         if rows:
-            insert_sql = sql.SQL("INSERT INTO {} VALUES ({}) ON CONFLICT DO NOTHING;").format(
+            insert_sql = sql.SQL("""
+                INSERT INTO {} VALUES ({})
+                ON CONFLICT ON CONSTRAINT {} DO NOTHING;
+            """).format(
                 sql.Identifier(table_name),
-                sql.SQL(', ').join(sql.Placeholder() * len(rows[0]))
+                sql.SQL(', ').join(sql.Placeholder() * len(rows[0])),
+                sql.Identifier(constraint_name)
             )
             local_cur.executemany(insert_sql, rows)
             local_conn.commit()
+
 
         print(f"✅ Table '{table_name}' cloned successfully.")
 
