@@ -278,12 +278,16 @@ async def analyze_comments(data: CommentData):
     }
 
 def get_suspicious_comments_from_analysis(analysis_results: List[Dict]) -> List[Dict]:
-    """Return comments with 'Suspicious' verdict from analyze_comments_batch_ollama results."""
     suspicious_comments = []
     for result in analysis_results:
-        explanation = result.get("explanation", "").lower()
-        if explanation.startswith("suspicious"):
-            suspicious_comments.append(result)
+        explanation = result.get("explanation", "")
+        if explanation.lower().startswith("suspicious"):
+            verdict, sep, reason = explanation.partition("- ")
+            suspicious_comments.append({
+                "comment": result.get("comment"),
+                "verdict": verdict.strip(),
+                "reason": reason.strip() if sep else ""
+            })
     return suspicious_comments
 
 
