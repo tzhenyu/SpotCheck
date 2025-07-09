@@ -12,68 +12,56 @@ remote_config = {
 }
 
 
-def clone_table(remote_conn, table_name):
-    remote_cur = remote_conn.cursor()
+def generate_select_all_query(table_name):
+    """
+    Generates a SQL query to select all records from a specified table.
+    
+    Args:
+        table_name (str): The name of the table to query
+        
+    Returns:
+        str: A SQL query string
+    """
+    return f"SELECT * FROM {table_name}"
+
+
+def execute_select_all_query(connection, table_name):
+    """
+    Executes a SELECT * query on the specified table and returns results.
+    
+    Args:
+        connection: Database connection object
+        table_name (str): The name of the table to query
+        
+    Returns:
+        list: Query results
+    """
+    cursor = connection.cursor()
     try:
-        # 🔍 Step 1: Get table schema
-        remote_cur.execute(f"""
-            SELECT column_name, data_type, is_nullable, column_default
-            FROM information_schema.columns
-            WHERE table_name = '{table_name}' AND table_schema = 'public'
-            ORDER BY ordinal_position;
-        """)
-        columns = remote_cur.fetchall()
-
-        if not columns:
-            print(f"Table {table_name} not found or has no columns.")
-            return
-
-        # 🛠️ Build CREATE TABLE statement
-        create_table_sql = sql.SQL("CREATE TABLE IF NOT EXISTS {table} (").format(
-            table=sql.Identifier(table_name)
-        )
-
-        column_defs = []
-        for col in columns:
-            col_name, col_type, is_nullable, default = col
-            col_def = sql.Identifier(col_name) + sql.SQL(" ") + sql.SQL(col_type.upper())
-
-            if default and "nextval" not in default:
-                col_def += sql.SQL(" DEFAULT ") + sql.SQL(default)
-            if is_nullable == "NO":
-                col_def += sql.SQL(" NOT NULL")
-
-            column_defs.append(col_def)
-
-        create_table_sql += sql.SQL(", ").join(column_defs) + sql.SQL(");")
-
-
-        # 📤 Step 2: Copy data from remote
-        remote_cur.execute(sql.SQL("SELECT comment FROM {}").format(sql.Identifier(table_name)))
-        rows = remote_cur.fetchall()
-
-        ## You shall start processing the rows here.
-        ## Extract only the comment from database using pandas.
-        ## Filter out unnessary words like "/n" or whatever tf
-        print(rows)
-            
-
-
+        query = generate_select_all_query(table_name)
+        cursor.execute(query)
+        results = cursor.fetchall()
+        return results
     except Exception as e:
-        print("❌ Error:", e)
+        print(f"❌ Error executing query: {e}")
+        return []
     finally:
-        remote_cur.close()
+        cursor.close()
+
 
 # Main function
 if __name__ == "__main__":
-    # 🔁 Connect to remote and local DBs
+    # 🔁 Connect to remote DB
     remote_conn = psycopg2.connect(**remote_config)
 
-    TABLE_NAME = "test_reviews"
+    TABLE_NAME = "test_product"
     
     try:
-        # Call clone_table with the specified table name
-        clone_table(remote_conn, TABLE_NAME)
+        # Execute query and print results
+        results = execute_select_all_query(remote_conn, TABLE_NAME)
+        print(f"Results from {TABLE_NAME}:")
+        for row in results:
+            print(row)
     except Exception as e:
         print(f"❌ Failed to process table {TABLE_NAME}: {e}")
     finally:
