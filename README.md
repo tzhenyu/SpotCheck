@@ -1,4 +1,4 @@
-# Project Title & Tagline
+# SpotCheck
 Awesome Hackathon Project 🚀  
 _A short, catchy description goes here._
 
