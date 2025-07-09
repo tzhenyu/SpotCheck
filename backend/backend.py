@@ -5,13 +5,13 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from typing import List, Dict, Optional
 import asyncio
-from google import genai
 import os
 import re
 import datetime
 from dotenv import load_dotenv
 import psycopg2
 from psycopg2.extras import RealDictCursor
+import requests
 
 
 # Load environment variables from .env file
@@ -53,15 +53,6 @@ def clean_timestamp(timestamp_str):
     
     return None
 
-# Configure Gemini API with API key
-API_KEY = os.getenv("GEMINI_API_KEY")
-if not API_KEY:
-    logger.error("GEMINI_API_KEY environment variable not set")
-    raise ValueError("GEMINI_API_KEY environment variable is required")
-
-# Initialize Gemini model name
-gemini_model = "gemini-2.0-flash"
-
 # Create data models
 class CommentData(BaseModel):
     comments: List[str]
@@ -98,80 +89,55 @@ async def root():
     response.headers["Access-Control-Allow-Origin"] = "*"
     return response
 
-async def analyze_comment_with_gemini(comment: str) -> Dict:
-    """Process a single comment with Gemini API"""
+async def analyze_comment_with_ollama(comment: str, prompt: str = None) -> Dict:
+    """Process a single comment with Ollama API"""
     try:
-        prompt = f"Review: '{comment}'\nIs this review real or fake? Respond with 'REAL' or 'FAKE' following reason in 15 words."
-        
-        response = await asyncio.to_thread(
-            client.models.generate_content,
-            model=gemini_model, 
-            contents=prompt
+        if prompt is None:
+            prompt = "For the following review, respond ONLY with 'REAL' or 'FAKE' and a brief reason (do not repeat the review text). Example: REAL (reason) or FAKE (reason). Review: '" + comment + "'"
+        response = requests.post(
+            "http://localhost:11434/api/generate",
+            json={
+                "model": "llama3:instruct",
+                "prompt": prompt,
+                "stream": False
+            },
+            timeout=30
         )
-        
-        result_text = response.text.strip()
+        response.raise_for_status()
+        result_json = response.json()
+        result_text = result_json.get("response", "").strip()
         is_fake = "fake" in result_text.lower()
-        
         return {
             "comment": comment[:50] + "..." if len(comment) > 50 else comment,
             "is_fake": is_fake,
             "explanation": result_text
         }
     except Exception as e:
-        logger.error(f"Error analyzing comment with Gemini: {str(e)}")
+        logger.error(f"Error analyzing comment with Ollama: {str(e)}")
         return {
             "comment": comment[:50] + "..." if len(comment) > 50 else comment,
             "is_fake": None,
             "explanation": f"Error: {str(e)}"
         }
 
-async def analyze_comments_batch(comments: List[str], api_key: str = None, product_name: str = None, prompt: str = None) -> List[Dict]:
-    """Process multiple comments in a single Gemini API call with optional API key and product context"""
+async def analyze_comments_batch_ollama(comments: List[str], prompt: str = None) -> List[Dict]:
+    """Process multiple comments in a single Ollama API call"""
     try:
-        # Use provided API key or use the default one
-        current_api_key = api_key if api_key is not None else API_KEY
-        
-        # Initialize Gemini client with the selected API key
-        temp_client = genai.Client(api_key=current_api_key)
-        
-        # Format all comments into a single prompt
-        full_prompt = prompt if prompt else ""
-        
-        # Add product context if available
-        if product_name and not prompt:
-            full_prompt += f"Product name: {product_name}\n"
-            
-        # Base analysis instructions
-        if not prompt:
-            full_prompt += "Analyze each product review below and determine if it's real or fake.\n"
-            full_prompt += "For each review, respond with REAL or FAKE followed by a brief explanation (15 words max).\n"
-            full_prompt += "Format your response as numbered list matching the order of reviews:\n\n"
-            for i, comment in enumerate(comments, 1):
-                full_prompt += f"{i}. Review: '{comment}'\n"
-        else:
-            for i, comment in enumerate(comments, 1):
-                full_prompt += f"{i}. Review: '{comment}'\n"
-        
-        # Make a single API call for all comments
-        response = await asyncio.to_thread(
-            temp_client.models.generate_content,
-            model=gemini_model,
-            contents=full_prompt
+        base_prompt = prompt if prompt else "For each product review below, respond ONLY with 'REAL' or 'FAKE' and a brief reason (do not repeat the review text). Example: REAL (reason) or FAKE (reason). Format your response as a numbered list matching the order of reviews.\n\n"
+        for i, comment in enumerate(comments, 1):
+            base_prompt += f"{i}. Review: '{comment}'\n"
+        response = requests.post(
+            "http://localhost:11434/api/generate",
+            json={
+                "model": "llama3",
+                "prompt": base_prompt,
+                "stream": False
+            },
+            timeout=60
         )
-        
-        try:
-            result_text = response.candidates[0].content.parts[0].text.strip()
-        except Exception as e:
-            logger.error(f"Gemini API response parsing error: {str(e)} | Raw response: {response}")
-            return [
-                {
-                    "comment": comment[:50] + "..." if len(comment) > 50 else comment,
-                    "is_fake": None,
-                    "explanation": f"Gemini API response parsing error: {str(e)}"
-                }
-                for comment in comments
-            ]
-        
+        response.raise_for_status()
+        result_json = response.json()
+        result_text = result_json.get("response", "").strip()
         lines = [line.strip() for line in result_text.split('\n') if line.strip()]
         results = []
         comment_map = {}
@@ -180,17 +146,11 @@ async def analyze_comments_batch(comments: List[str], api_key: str = None, produ
                 if line.startswith(f"{i}."):
                     comment_map[i-1] = line
                     break
-        
         for idx, comment in enumerate(comments):
             if idx in comment_map:
                 result_line = comment_map[idx]
                 is_fake = "fake" in result_line.lower()
-                explanation = result_line
-                explanation = re.sub(r'^\d+\.\s*', '', explanation)
-                if is_fake:
-                    explanation = re.sub(r'^(FAKE|Fake|fake):\s*', '', explanation)
-                else:
-                    explanation = re.sub(r'^(REAL|Real|real):\s*', '', explanation)
+                explanation = re.sub(r'^\d+\.\s*', '', result_line)
                 explanation = explanation.strip()
             else:
                 logger.error(f"No matching line for comment index {idx}: {comment}")
@@ -201,10 +161,9 @@ async def analyze_comments_batch(comments: List[str], api_key: str = None, produ
                 "is_fake": is_fake,
                 "explanation": explanation
             })
-        
         return results
     except Exception as e:
-        logger.error(f"Error in batch analysis with Gemini: {str(e)}")
+        logger.error(f"Error in batch analysis with Ollama: {str(e)}")
         return [
             {
                 "comment": comment[:50] + "..." if len(comment) > 50 else comment,
@@ -319,35 +278,20 @@ async def process_comments(data: CommentData):
 
 @app.post("/analyze")
 async def analyze_comments(data: CommentData):
-    """Process comments from Shopee with Gemini API"""
     logger.info(f"Received {len(data.comments)} comments")
-    
-    # Process up to 6 comments to avoid rate limits
     comments_to_process = data.comments[:6]
     prompt = data.prompt
     if len(comments_to_process) <= 1:
-        # For single comment, use the individual processing
         results = []
         for comment in comments_to_process:
             logger.info(f"Analyzing individual comment: {comment[:50]}...")
-            result = await analyze_comment_with_gemini(comment)
+            result = await analyze_comment_with_ollama(comment)
             results.append(result)
     else:
-        # For multiple comments, use batch processing
-        logger.info(f"Batch analyzing {len(comments_to_process)} comments...")
-        if prompt:
-            results = await analyze_comments_batch(comments_to_process, product_name=None, api_key=None, prompt=prompt)
-        else:
-            results = await analyze_comments_batch(comments_to_process, product_name="Shopee Product")
-    
+        logger.info(f"Batch analyzing {len(comments_to_process)} comments with Ollama...")
+        results = await analyze_comments_batch_ollama(comments_to_process, prompt=prompt)
     logger.info(f"Completed analysis of {len(results)} comments")
     return {
-        "message": f"Processed {len(results)} comments", 
+        "message": f"Processed {len(results)} comments",
         "results": results
     }
-
-
-if __name__ == "__main__":
-    import uvicorn
-    logger.info("Starting API server on http://127.0.0.1:8000")
-    uvicorn.run(app, host="0.0.0.0", port=8000)
