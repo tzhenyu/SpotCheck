@@ -58,6 +58,7 @@ class CommentData(BaseModel):
     comments: List[str]
     metadata: List[Dict] = None
     prompt: Optional[str] = None
+    product: Optional[str] = None
 
 # Create FastAPI application
 app = FastAPI()
@@ -89,14 +90,24 @@ async def root():
     response.headers["Access-Control-Allow-Origin"] = "*"
     return response
 
-async def analyze_comments_batch_ollama(comments: List[str], prompt: str = None) -> List[Dict]:
+async def analyze_comments_batch_ollama(comments: List[str], prompt: str = None, product: str = None) -> List[Dict]:
     """Process multiple comments in a single Ollama API call"""
     try:
         base_prompt = prompt if prompt else (
-            "For each product review below, respond ONLY with 'REAL' or 'FAKE' and a brief reason in English. "
-            "Do not mention the language of the review. Do not repeat the review text. "
-            "Example: REAL (reason) or FAKE (reason). Format your response as a numbered list matching the order of reviews.\n\n"
+            
         )
+        system_prompt = """
+        You are a fake review evaluator.\n\n
+        Given a product and several Shopee reviews, classify each review as:\n
+        - Genuine: Relevant, product-specific, likely from a real user.\n
+        - Suspicious: Repetitive, vague, overly positive, or possibly AI-generated.\n
+        - Not Relevant: Unrelated to the product.\n\n
+        Respond with a numbered list using this format:\n
+        1. <Verdict> - (Short reason)\n
+        Keep reasons under 15 words. Don’t repeat review text.       
+        """
+        if product:
+            base_prompt += f"Product: {product}\n"
         for i, comment in enumerate(comments, 1):
             base_prompt += f"{i}. Review: '{comment}'\n"
         response = requests.post(
@@ -104,10 +115,12 @@ async def analyze_comments_batch_ollama(comments: List[str], prompt: str = None)
             json={
                 "model": "llama3",
                 "prompt": base_prompt,
+                "system": system_prompt,
                 "stream": False
             },
             timeout=60
         )
+
         response.raise_for_status()
         result_json = response.json()
         result_text = result_json.get("response", "").strip()
@@ -254,9 +267,9 @@ async def analyze_comments(data: CommentData):
     logger.info(f"Received {len(data.comments)} comments")
     comments_to_process = data.comments[:6]
     prompt = data.prompt
-
+    product = data.product
     logger.info(f"Batch analyzing {len(comments_to_process)} comments with Ollama...")
-    results = await analyze_comments_batch_ollama(comments_to_process, prompt=prompt)
+    results = await analyze_comments_batch_ollama(comments_to_process, prompt=prompt, product=product)
     logger.info(f"Completed analysis of {len(results)} comments")
     return {
         "message": f"Processed {len(results)} comments",

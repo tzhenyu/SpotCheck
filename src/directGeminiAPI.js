@@ -155,12 +155,14 @@ async function analyzeCommentsDirectly(comments, apiKey = null, productName = nu
  * Analyze comments using Python backend
  * @param {string[]} comments - Array of comments to analyze
  * @param {string} prompt - Optional prompt to send to backend
+ * @param {string} product - Optional product name
  * @returns {Promise<object>} Analysis results
  */
-async function analyzeCommentsWithPythonBackend(comments, prompt = null) {
+async function analyzeCommentsWithPythonBackend(comments, prompt = null, product = null) {
   try {
     const body = { comments };
     if (prompt) body.prompt = prompt;
+    if (product) body.product = product;
     const response = await fetch("http://127.0.0.1:8000/analyze", {
       method: "POST",
       headers: {
@@ -210,7 +212,7 @@ async function analyzeCommentsWithBackendOnly(comments, productName = null) {
     if (productName) {
       prompt = `Product name: ${productName}\nAnalyze each product review below and determine if it's real or fake. For each review, respond with REAL or FAKE followed by a brief explanation (15 words max). Format your response as numbered list matching the order of reviews.`;
     }
-    return await window.DirectGeminiAPI.analyzeCommentsWithPythonBackend(comments, prompt);
+    return await window.DirectGeminiAPI.analyzeCommentsWithPythonBackend(comments, prompt, productName);
   } catch (error) {
     console.error("Error analyzing with backend only:", error);
     return { message: `Backend Analysis Error: ${error.message}`, error: true };

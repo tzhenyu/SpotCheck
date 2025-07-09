@@ -159,19 +159,15 @@ function showCommentsOverlay(comments) {
 function debouncedProcessComments() {
   if (apiCallTimer) clearTimeout(apiCallTimer);
   apiCallTimer = setTimeout(() => {
-    setTimeout(() => {
-      const comments = ShopeeHelpers.extractShopeeCommentTexts();
-      if (comments && comments.length > 0) {
-        console.log(`Processing ${comments.length} comments after pagination or DOM change`);
-        // Directly call showCommentsOverlay, skip API key check
-        // Also update extractedCommentsCache for later use
-        window.extractedCommentsCache = window.ShopeeHelpers.extractDetailedCommentData();
-        showCommentsOverlay(comments);
-      } else {
-        console.log('No comments found to process');
-      }
-    }, 200);
-  }, DEBOUNCE_DELAY);
+    const comments = ShopeeHelpers.extractShopeeCommentTexts();
+    if (comments && comments.length > 0) {
+      console.log(`Processing ${comments.length} comments after pagination or DOM change`);
+      window.extractedCommentsCache = window.ShopeeHelpers.extractDetailedCommentData();
+      showCommentsOverlay(comments);
+    } else {
+      console.log('No comments found to process');
+    }
+  }, 50); // Reduce delay for faster DOM response
 }
 
 function showCommentsOverlay(comments) {
@@ -345,7 +341,7 @@ function checkPaginationChange() {
           if (isAutoExtractEnabled) {
             debouncedProcessComments();
           }
-        }, 500);
+        }, 50);
       }
     }
   } catch (error) {
