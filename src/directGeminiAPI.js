@@ -210,7 +210,7 @@ async function analyzeCommentsWithBackendOnly(comments, productName = null) {
     // Optionally include productName in prompt for backend context
     let prompt = null;
     if (productName) {
-      prompt = `Product name: ${productName}\nAnalyze each product review below and determine if it's real or fake. For each review, respond with REAL or FAKE followed by a brief explanation (15 words max). Format your response as numbered list matching the order of reviews.`;
+      prompt = `Product name: ${productName}`;
     }
     return await window.DirectGeminiAPI.analyzeCommentsWithPythonBackend(comments, prompt, productName);
   } catch (error) {

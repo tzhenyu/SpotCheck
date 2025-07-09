@@ -97,14 +97,15 @@ async def analyze_comments_batch_ollama(comments: List[str], prompt: str = None,
             
         )
         system_prompt = """
-        You are a fake review evaluator.\n\n
+        You are a fake review evaluator for e-commerce.\n\n
         Given a product and several Shopee reviews, classify each review as:\n
         - Genuine: Relevant, product-specific, likely from a real user.\n
         - Suspicious: Repetitive, vague, overly positive, or possibly AI-generated.\n
         - Not Relevant: Unrelated to the product.\n\n
         Respond with a numbered list using this format:\n
         1. <Verdict> - (Short reason)\n
-        Keep reasons under 15 words. Don’t repeat review text.       
+        Keep reasons under 15 words. Don’t repeat review text. 
+        Do not flag review as suspicious just because it used other language.      
         """
         if product:
             base_prompt += f"Product: {product}\n"
@@ -120,7 +121,7 @@ async def analyze_comments_batch_ollama(comments: List[str], prompt: str = None,
             },
             timeout=60
         )
-
+        # print(base_prompt)
         response.raise_for_status()
         result_json = response.json()
         result_text = result_json.get("response", "").strip()
@@ -280,4 +281,4 @@ async def analyze_comments(data: CommentData):
 if __name__ == "__main__":
     import uvicorn
     logger.info("Starting API server on http://127.0.0.1:8000")
-    uvicorn.run(app, host="0.0.0.0", port=8000, reload=True)
+    uvicorn.run("backend:app", host="0.0.0.0", port=8000, reload=True)
