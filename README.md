@@ -1,54 +1,27 @@
-### I need y'all help: Scrape some data for behavioral analysis
+#### For this branch, you need to extract the comments from database 
+- DONT FUCK AROUND, you are the superuser from remote database. you can simply drop table DONT DO THAT
+- Make sure your tailscale is up and joined my network. if not, lmk
 
-Scope:
-- Shopee
-- Shirts category
-- Each member extract comment on 15 different products
 
-#### Set up Tailscale
-1. Install tailscale, google it yourself
-2. Join this https://login.tailscale.com/uinv/i1db424acee175eca. Make sure you login with the same account as the client.
-#### Git Pull
-1. Commit your branch to prevent any loss, better if push
-2. In GitHub, change to the branch "feature_relational_database"
-```Source Control > Repository > a branch name```
+Go to "backend" folder, you will see "getDataFromServer.py". That's where you do your work. 
 
-```Click that branch name, click "origin/feature_relational_database"```
+This file has set up the remote server with "select comment from table". Here is the results from database:
 
-2. Git pull it
-
-#### Open the backend server
-1. in the Terimnal:
-```bash 
-pip install -r requirements.txt
-python ./backend/backend.py
 ```
-If it look like this below, you did it correct.
+('Kain lembut, chiffon kualiti, beli masa sale. Dapat harga sale murah. Harap dapat beli lgi harga murah. Chiffon ni tak panas. Sesuai pakai kemana sahaja.',)
+('Terima kasih semua item betul,tiada sebarang kerosakan.jahitan tepi kemas\n\nCorak2 yang cantik,warna yang menarik\nSy suka pakai tudung Dari FAREHA dah banyak koleksi yang telah saya ada',)
+('Tudung Telah Diterima Cukup Lengkap Seperti Ordered. Kain Cotton Selesa Dipakai. Corak Menarik. Harga Murah Beli Masa Live. Highly Recommended & Thank You Seller',)
+('Beli masa live dapat harga rm5. 90 sehelai. Beli 3 helai terus grab. Puas hati. Corak cantik. Terima kasih seller. Nnty boleh beli lagi corak yang lain. Basuh dulu sebelum guna.',)
+('Cantik ya corak Amami ni 🥰 Beli utk jadikan hadiah utk kawan punya birthday. Terima kasih Fareha HQ buat sale harga murah2 sgt utk tudung yg berkualiti.',)
 ```
-> python ./backend/backend.py
-INFO:__main__:Starting API server on http://127.0.0.1:8000
-INFO:     Started server process [41750]
-INFO:     Waiting for application startup.
-INFO:     Application startup complete.
-INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
-```
+You will found that the text has emoji, \n\n or any unwated character.
 
-#### Install the extension 
-1. Go to your browser settings > extension
-2. enable developer mode
-3. press load unpacked, it will prompt you to open folder (if cant find it just google it yourself)
-4. load the "src" folder from this git repo
-5. The extension should be installed in your browser.
-6. Pin it on your toolbar, convenient for you
 
-#### Scrape the data 
-1. Go to any shopee product webpage
-2. The product ratings section can choose what comment you want, choose "With Comments" 
-3. Click the extension from toolbar, it should show "6 comments extracted"
-4. Click the "extract all pages (30)" buttons
-5. it will automatically navigate comment page, let it sit, dont do anything
-6. After it stopped, means its done. 
-8. There's a "upload to sql server" button. Click it
-9. If there's a successful message, you are done!
+What you have to do is to extract the comment from database using **pandas library**, clean the data by removing unncessary words. This is to store data for vector embedding.
 
-#### Repeat it for 15 different pages
+The outcome should be a cleaned data in csv form. 
+
+To do
+- [ ] Get data from database and clean it straightaway in the same script
+- [ ] Embed to vector via Sentence-BERT (not now)
+- [ ] Store in vector database (not now) 
