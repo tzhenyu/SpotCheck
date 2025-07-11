@@ -6,7 +6,7 @@ This script processes a Shopee reviews CSV file to:
 2. Remove newlines from text
 3. Remove the first column entirely
 4. Remove all headers from the CSV
-5. Limit the output to a maximum number of rows (10,000)
+5. Process all rows in the input file (no row limit)
 6. Remove empty or whitespace-only rows
 
 The processed data is saved to a new CSV file.
@@ -14,11 +14,13 @@ The processed data is saved to a new CSV file.
 
 import pandas as pd
 import re
+import argparse
 
 # File paths and constants
 CSV_FILE_PATH = "/home/jon/Downloads/shopee_reviews.csv"
-OUTPUT_CSV_PATH = "pythonScript/shopee_reviews_cleaned.csv"
-MAX_ROWS = 10000
+OUTPUT_CSV_PATH = "pythonScript/shopee_reviews_all.csv"
+# Set to None for no limit or a positive integer to limit the number of rows
+MAX_ROWS = None
 
 # Enhanced emoji pattern to catch more variations
 EMOJI_PATTERN = re.compile(
@@ -99,30 +101,26 @@ def remove_first_column(data_frame):
         return data_frame.iloc[:, 1:]
     return data_frame
 
-def process_and_save_data(input_csv_path: str, output_csv_path: str, max_rows: int = MAX_ROWS):
+def process_and_save_data(input_csv_path: str, output_csv_path: str, max_rows=None):
     """
     Process the input CSV file and save the cleaned data to the output file.
     
     Processing steps:
-    1. Read the CSV file (reading more rows than needed to account for filtering)
+    1. Read the CSV file
     2. Remove the first column
     3. Remove empty or whitespace-only rows and rows with empty text
     4. Process text to remove emojis and newlines
-    5. Ensure exactly max_rows valid rows in the output
-    6. Save to the output CSV file without headers
+    5. Save valid rows to the output file without headers (optionally limited by max_rows)
     
     Args:
         input_csv_path: Path to the input CSV file
         output_csv_path: Path where the processed CSV will be saved
-        max_rows: Maximum number of rows to include in the output
+        max_rows: Maximum number of rows to include in the output file (None for all rows)
     """
     try:
         # Read CSV file with low_memory=False to avoid DtypeWarning
-        # Read more rows than needed to account for filtering
         print(f"Reading CSV file from {input_csv_path}...")
-        # Read at least max_rows*1.1 to account for filtering
-        rows_to_read = int(max_rows * 1.1)
-        data_frame = pd.read_csv(input_csv_path, low_memory=False, nrows=rows_to_read)
+        data_frame = pd.read_csv(input_csv_path, low_memory=False)
         print(f"Read {len(data_frame)} rows and {len(data_frame.columns)} columns")
         
         # Remove the first column
@@ -161,69 +159,13 @@ def process_and_save_data(input_csv_path: str, output_csv_path: str, max_rows: i
             
         print(f"Removed {original_row_count - len(data_frame)} empty/whitespace-only rows")
         
-        # After all the filtering, check if we have enough rows
+        # After all the filtering, report how many rows we have
         print(f"After filtering, found {len(data_frame)} rows")
-        
-        # If we don't have enough rows, read more from the file
-        while len(data_frame) < max_rows:
-            # Calculate how many more rows we need
-            rows_needed = max_rows - len(data_frame)
-            print(f"Need {rows_needed} more rows to reach target of {max_rows}")
-            
-            try:
-                # Get the number of the last row we processed
-                last_row = max(data_frame.index.max() + 1, len(data_frame)) if not data_frame.empty else 0
-                
-                # Read more rows than we need to account for filtering
-                additional_rows_to_read = rows_needed * 2
-                print(f"Reading {additional_rows_to_read} additional rows starting from row {last_row + 1}")
-                
-                # Skip the header and the rows we've already processed
-                additional_data = pd.read_csv(input_csv_path, 
-                                            skiprows=range(1, last_row + 1), 
-                                            header=0,
-                                            nrows=additional_rows_to_read,
-                                            low_memory=False)
-                
-                if len(additional_data) == 0:
-                    print("No more data available to read")
-                    break
-                    
-                # Process the additional data through the same pipeline
-                additional_data = remove_first_column(additional_data)
-                additional_data = additional_data.dropna(how='all')
-                
-                # Remove whitespace-only rows
-                whitespace_mask = additional_data.apply(
-                    lambda col: ~col.astype(str).str.strip().astype(bool) if col.dtype == 'object' else True)
-                additional_data = additional_data[~whitespace_mask.all(axis=1)]
-                
-                # Clean all columns
-                for col_idx in range(len(additional_data.columns)):
-                    # Process text in each column
-                    additional_data.iloc[:, col_idx] = additional_data.iloc[:, col_idx].apply(remove_emojis)
-                    additional_data.iloc[:, col_idx] = additional_data.iloc[:, col_idx].apply(remove_newlines)
-                
-                # Remove empty text values in any column
-                additional_data = additional_data[additional_data.astype(str).apply(lambda x: x.str.strip() != "").all(axis=1)]
-                
-                # Append to our existing dataframe
-                data_frame = pd.concat([data_frame, additional_data])
-                print(f"After adding additional rows, now have {len(data_frame)} rows")
-                
-            except Exception as e:
-                print(f"Error reading additional rows: {e}")
-                break
-        
-        # Limit to max_rows
-        if len(data_frame) > max_rows:
-            data_frame = data_frame.iloc[:max_rows]
-            print(f"Limited output to {max_rows} rows")
         
         # Process all text columns to remove emojis and newlines
         # After removing the first column and headers, we need to work with column indices
         print("Processing text to remove emojis and newlines...")
-        # Process all columns (there should be only one after removing the first column)
+        # Process all columns 
         for col_idx in range(len(data_frame.columns)):
             data_frame.iloc[:, col_idx] = data_frame.iloc[:, col_idx].apply(remove_emojis)
             data_frame.iloc[:, col_idx] = data_frame.iloc[:, col_idx].apply(remove_newlines)
@@ -242,39 +184,6 @@ def process_and_save_data(input_csv_path: str, output_csv_path: str, max_rows: i
         
         if empty_count_before - empty_count_after > 0:
             print(f"Removed {empty_count_before - empty_count_after} rows with empty text")
-            
-        # If we're below max_rows, try to get additional rows to reach the target
-        if len(data_frame) < max_rows:
-            try:
-                # Read additional rows beyond what we've seen so far
-                additional_data = pd.read_csv(input_csv_path, low_memory=False, 
-                                            skiprows=range(1, max(data_frame.index.max() + 1, max_rows) + 1),
-                                            header=0,
-                                            nrows=(max_rows - len(data_frame)) * 2)  # Get 2x what we need
-                
-                if len(additional_data) > 0:
-                    print(f"Adding {len(additional_data)} additional rows to reach target count")
-                    
-                    # Process these new rows
-                    additional_data = remove_first_column(additional_data)
-                    
-                    # Clean all columns in the additional data
-                    for col_idx in range(len(additional_data.columns)):
-                        additional_data.iloc[:, col_idx] = additional_data.iloc[:, col_idx].apply(remove_emojis)
-                        additional_data.iloc[:, col_idx] = additional_data.iloc[:, col_idx].apply(remove_newlines)
-                    
-                    # Remove empty rows
-                    additional_data = additional_data.dropna()
-                    additional_data = additional_data[additional_data.astype(str).apply(lambda x: x.str.strip() != "").all(axis=1)]
-                    
-                    # Add to our dataframe
-                    data_frame = pd.concat([data_frame, additional_data])
-                    
-                    # Make sure we have exactly max_rows
-                    if len(data_frame) > max_rows:
-                        data_frame = data_frame.iloc[:max_rows]
-            except Exception as e:
-                print(f"Error trying to add more rows: {e}")
         
         # Process other columns if needed
         other_cols = [col for col in data_frame.columns if col != 'text' and col != 'label' and data_frame[col].dtype == 'object']
@@ -283,6 +192,12 @@ def process_and_save_data(input_csv_path: str, output_csv_path: str, max_rows: i
             for col in other_cols:
                 data_frame[col] = data_frame[col].apply(remove_emojis)
         
+        # Limit to max_rows if specified
+        original_row_count = len(data_frame)
+        if max_rows is not None and len(data_frame) > max_rows:
+            data_frame = data_frame.iloc[:max_rows]
+            print(f"Limited output to {max_rows} rows (from {original_row_count} available rows)")
+        
         # Save to CSV without headers
         data_frame.to_csv(output_csv_path, index=False, header=False)
         print(f"Output saved to {output_csv_path} with {len(data_frame)} non-empty rows (no headers)")
@@ -290,4 +205,19 @@ def process_and_save_data(input_csv_path: str, output_csv_path: str, max_rows: i
         print(f"Error processing CSV file: {error}")
 
 if __name__ == "__main__":
-    process_and_save_data(CSV_FILE_PATH, OUTPUT_CSV_PATH)
+    # Set up command-line argument parsing
+    parser = argparse.ArgumentParser(description='Process Shopee reviews CSV file')
+    parser.add_argument('--max-rows', type=int, default=MAX_ROWS,
+                        help='Maximum number of rows to include in the output file (default: no limit)')
+    parser.add_argument('--input', type=str, default=CSV_FILE_PATH,
+                        help=f'Path to input CSV file (default: {CSV_FILE_PATH})')
+    parser.add_argument('--output', type=str, default=OUTPUT_CSV_PATH,
+                        help=f'Path to output CSV file (default: {OUTPUT_CSV_PATH})')
+    
+    args = parser.parse_args()
+    
+    # If --max-rows=0 is specified, treat it as None (no limit)
+    max_rows = None if args.max_rows == 0 else args.max_rows
+    
+    # Process the data with the specified parameters
+    process_and_save_data(args.input, args.output, max_rows)
