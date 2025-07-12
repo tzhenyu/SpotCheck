@@ -1,4 +1,3 @@
-from sentence_transformers import SentenceTransformer
 import psycopg2
 from tqdm import tqdm
 import re
@@ -32,8 +31,6 @@ def remove_emojis_and_newlines(text):
     text = re.sub(r'\s+', ' ', text).strip()
     return text
 
-# Load model
-model = SentenceTransformer("all-MiniLM-L6-v2")
 
 # Connect to Supabase PostgreSQL
 conn = psycopg2.connect(
@@ -64,13 +61,6 @@ conn.commit()
 cur.execute("SELECT id, comment FROM product_reviews WHERE embedding IS NULL;")
 rows = cur.fetchall()
 
-# Generate and update embeddings
-for row_id, text in tqdm(rows):
-    embedding = model.encode(text).tolist()
-    cur.execute(
-        "UPDATE product_reviews SET embedding = %s WHERE id = %s;",
-        (embedding, row_id)
-    )
 
 conn.commit()
 cur.close()

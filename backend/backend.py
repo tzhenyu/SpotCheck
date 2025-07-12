@@ -13,6 +13,10 @@ import psycopg2
 from psycopg2.extras import RealDictCursor
 import requests
 import uvicorn
+from sentence_transformers import SentenceTransformer
+
+print("Loading embedding model, please hold!")
+model = SentenceTransformer("all-MiniLM-L6-v2")
 
 # Load environment variables from .env file
 load_dotenv()
@@ -60,6 +64,10 @@ class CommentData(BaseModel):
     prompt: Optional[str] = None
     product: Optional[str] = None
 
+class Query(BaseModel):
+    text: str
+
+
 # Create FastAPI application
 app = FastAPI()
 
@@ -81,7 +89,10 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
+@app.post("/embed")
+async def embed(query: Query):
+    embedding = model.encode(query.text).tolist()
+    return {"embedding": embedding}
 @app.get("/")
 async def root():
     """Root endpoint to verify API is running"""
@@ -293,5 +304,5 @@ def get_suspicious_comments_from_analysis(analysis_results: List[Dict]) -> List[
 
 if __name__ == "__main__":
     import uvicorn
-    logger.info("Starting API server on http://127.0.0.1:8000")
-    uvicorn.run("backend:app", host="0.0.0.0", port=8000, reload=True)
+    logger.info("Starting API server on http://127.0.0.1:8001")
+    uvicorn.run("backend:app", host="0.0.0.0", port=8001, reload=False)

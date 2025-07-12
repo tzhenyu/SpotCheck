@@ -1,43 +1,58 @@
-import os
-import weaviate
-from weaviate.classes.init import Auth
-from weaviate.classes.query import MetadataQuery
+import psycopg2
+import numpy as np
+import requests
 
-# Best practice: store your credentials in environment variables
-weaviate_url = os.environ["WEAVIATE_URL"]
-weaviate_api_key = os.environ["WEAVIATE_API_KEY"]
-
-# Connect to Weaviate Cloud
-client = weaviate.connect_to_weaviate_cloud(
-    cluster_url=weaviate_url,
-    auth_credentials=Auth.api_key(weaviate_api_key),
-)
-def check_weaviate_connection():
+def get_embedding(query_text):
     try:
-        client = weaviate.connect_to_weaviate_cloud(
-            cluster_url=weaviate_url,
-            auth_credentials=Auth.api_key(weaviate_api_key),
+        headers = {"Authorization": "Bearer YOUR_API_KEY"}  # Replace with your actual key/token
+        response = requests.post(
+            "http://127.0.0.1:8001/embed",
+            json={"text": query_text},
+            headers=headers
         )
-        is_ready = client.is_ready()
-        client.close()
-        return is_ready
+        response.raise_for_status()
+        data = response.json()
+        if "embedding" not in data:
+            print(f"Error: 'embedding' key missing in response: {data}, query_text: {query_text}")
+            return None
+        return data["embedding"]
     except Exception as error:
-        print(f"Error checking Weaviate connection: {error}")
-        return False
+        print(f"Error during embedding request: {error}, query_text: {query_text}")
+        return None
+def semantic_search_postgres(query: str, top_n: int):
+    try:
+        conn = psycopg2.connect(
+            dbname="postgres",
+            user="postgres.your-tenant-id",
+            password="your-super-secret-and-long-postgres-password",
+            host="localhost",
+            port="5432"
+        )
+        cur = conn.cursor()
 
-jeopardy = client.collections.get("Kaggle_shopee_review_119k")
-response = jeopardy.query.near_text(
-    query="this thing sucks ass",
-    limit=5,
-    return_metadata=MetadataQuery(distance=True)
-)
+        # Load model and encode query
+        query_embedding = get_embedding(query)
 
-print(client.is_ready())
+        # Perform the SQL query directly on the table using pgvector
+        cur.execute(
+            """
+            SELECT id, comment, username, rating,
+                   1 - (embedding <=> %s::vector) AS similarity
+            FROM product_reviews
+            ORDER BY embedding <=> %s::vector
+            LIMIT %s;
+            """,
+            (query_embedding, query_embedding, top_n)
+        )
 
-for o in response.objects:
-    print(o.properties)
-    print(o.metadata.distance)
+        results = cur.fetchall()
+        cur.close()
+        conn.close()
+        return results
 
-    
+    except Exception as error:
+        print(f"Error during semantic search in Postgres: {error}, query: {query}, top_n: {top_n}")
+        return None
 
-client.close()
+# Test it
+print(semantic_search_postgres("very good", 5))
