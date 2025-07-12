@@ -301,7 +301,41 @@ def get_suspicious_comments_from_analysis(analysis_results: List[Dict]) -> List[
             })
     return suspicious_comments
 
+def semantic_search_postgres(query: str, top_n: 5):
+    try:
+        conn = psycopg2.connect(
+            dbname="postgres",
+            user="postgres.your-tenant-id",
+            password="your-super-secret-and-long-postgres-password",
+            host="localhost",
+            port="5432"
+        )
+        cur = conn.cursor()
 
+        # Load model and encode query
+        query_embedding = embed(query)
+
+        # Perform the SQL query directly on the table using pgvector
+        cur.execute(
+            """
+            SELECT id, comment, username, rating,
+                   1 - (embedding <=> %s::vector) AS similarity
+            FROM product_reviews
+            ORDER BY embedding <=> %s::vector
+            LIMIT %s;
+            """,
+            (query_embedding, query_embedding, top_n)
+        )
+
+        results = cur.fetchall()
+        cur.close()
+        conn.close()
+        return results
+
+    except Exception as error:
+        print(f"Error during semantic search in Postgres: {error}, query: {query}, top_n: {top_n}")
+        return None
+    
 if __name__ == "__main__":
     import uvicorn
     logger.info("Starting API server on http://127.0.0.1:8001")
