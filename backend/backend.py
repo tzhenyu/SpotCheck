@@ -4,8 +4,6 @@ import logging
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from typing import List, Dict, Optional
-import asyncio
-import os
 import re
 import datetime
 from dotenv import load_dotenv
@@ -15,19 +13,19 @@ import requests
 import uvicorn
 from sentence_transformers import SentenceTransformer
 
-print("Loading embedding model, please hold!")
 model = SentenceTransformer("all-MiniLM-L6-v2")
+print("Loading embedding model, please hold!")
 
 # Load environment variables from .env file
 load_dotenv()
 
 # Database configuration
 DB_CONFIG = {
-    "database": "local_futurehack",
+    "dbname": "postgres",
+    "user": "postgres.your-tenant-id",
+    "password": "your-super-secret-and-long-postgres-password",
     "host": "localhost",
-    "user": "zhenyu",
-    "password": "123123",
-    "port": "5432"
+    "port": 5432
 }
 
 # Configure logging
@@ -125,7 +123,7 @@ async def analyze_comments_batch_ollama(comments: List[str], prompt: str = None,
         response = requests.post(
             "http://localhost:11434/api/generate",
             json={
-                "model": "llama3",
+                "model": "llama3:instruct",
                 "prompt": base_prompt,
                 "system": system_prompt,
                 "stream": False
@@ -174,14 +172,7 @@ async def analyze_comments_batch_ollama(comments: List[str], prompt: str = None,
 def get_db_connection():
     """Establish a connection to the PostgreSQL database"""
     try:
-        conn = psycopg2.connect(
-            database=DB_CONFIG["database"],
-            host=DB_CONFIG["host"],
-            user=DB_CONFIG["user"],
-            password=DB_CONFIG["password"],
-            port=DB_CONFIG["port"],
-            cursor_factory=RealDictCursor  # Returns results as dictionaries
-        )
+        conn = psycopg2.connect(**DB_CONFIG)
         return conn
     except Exception as e:
         logger.error(f"Database connection error: {str(e)}")
@@ -303,13 +294,7 @@ def get_suspicious_comments_from_analysis(analysis_results: List[Dict]) -> List[
 
 def semantic_search_postgres(query: str, top_n: 5):
     try:
-        conn = psycopg2.connect(
-            dbname="postgres",
-            user="postgres.your-tenant-id",
-            password="your-super-secret-and-long-postgres-password",
-            host="localhost",
-            port="5432"
-        )
+        conn = psycopg2.connect(**DB_CONFIG)
         cur = conn.cursor()
 
         # Load model and encode query

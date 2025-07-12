@@ -163,7 +163,7 @@ async function analyzeCommentsWithPythonBackend(comments, prompt = null, product
     const body = { comments };
     if (prompt) body.prompt = prompt;
     if (product) body.product = product;
-    const response = await fetch("http://127.0.0.1:8000/analyze", {
+    const response = await fetch("http://127.0.0.1:8001/analyze", {
       method: "POST",
       headers: {
         "Content-Type": "application/json"
