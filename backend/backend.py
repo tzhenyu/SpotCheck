@@ -15,6 +15,10 @@ from typing import List
 import json
 import requests
 import os
+from cleanDatabase import clean_postgresql_data
+import threading
+import time
+
 # from adam import agent_executor
 
 model = SentenceTransformer("all-MiniLM-L6-v2")
@@ -512,6 +516,16 @@ def determine_review_genuinty(suspicious_comments: List[Dict]) -> List[Dict]:
             }
             for item in suspicious_comments
         ]
+
+def schedule_clean_postgresql_data():
+    def run_periodically():
+        while True:
+            clean_postgresql_data()
+            time.sleep(3600)
+    thread = threading.Thread(target=run_periodically, daemon=True)
+    thread.start()
+
+schedule_clean_postgresql_data()
 
 if __name__ == "__main__":
     import uvicorn
