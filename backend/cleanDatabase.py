@@ -1,7 +1,19 @@
 import psycopg2
 from tqdm import tqdm
 import requests
+from dotenv import load_dotenv
+import os
 
+load_dotenv()
+
+
+DB_CONFIG = {
+    "dbname": os.getenv("DBNAME"),
+    "user": os.getenv("USER"),
+    "password": os.getenv("PASSWORD"),
+    "host": os.getenv("HOST"),
+    "port": int(os.getenv("PORT", 5432))
+}
 
 def clean_postgresql_data(table_name):
     # Connect to Supabase PostgreSQL

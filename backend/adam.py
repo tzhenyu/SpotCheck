@@ -5,6 +5,11 @@ from langchain_core.tools import tool
 from langchain_ollama import ChatOllama
 from langgraph.prebuilt import create_react_agent
 import requests
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
+
 #Constant for PostgreSQL statement
 DUPLICATE_COMMENT_PRODUCT_THRESHOLD = 3
 USER_FAST_REVIEW_COUNT = 5
@@ -14,16 +19,17 @@ GENERIC_COMMENT_PRODUCT_THRESHOLD = 3
 HIGH_AVG_RATING = 5.0
 HIGH_AVG_RATING_COUNT = 5
 BURST_COUNT_THRESHOLD = 5
-table_name = "product_reviews"
+
 
 # Database configuration
 DB_CONFIG = {
-    "dbname": "postgres",
-    "user": "postgres.your-tenant-id",
-    "password": "your-super-secret-and-long-postgres-password",
-    "host": "localhost",
-    "port": 5432
+    "dbname": os.getenv("DBNAME"),
+    "user": os.getenv("USER"),
+    "password": os.getenv("PASSWORD"),
+    "host": os.getenv("HOST"),
+    "port": int(os.getenv("PORT", 5432))
 }
+table_name = os.getenv("TABLE_NAME")
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)

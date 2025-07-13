@@ -14,6 +14,7 @@ from sentence_transformers import SentenceTransformer
 from typing import List
 import json
 import requests
+import os
 # from adam import agent_executor
 
 model = SentenceTransformer("all-MiniLM-L6-v2")
@@ -31,15 +32,17 @@ GENERIC_COMMENT_PRODUCT_THRESHOLD = 3
 HIGH_AVG_RATING = 5.0
 HIGH_AVG_RATING_COUNT = 5
 BURST_COUNT_THRESHOLD = 5
-table_name = "product_reviews"
 # Database configuration
+
 DB_CONFIG = {
-    "dbname": "postgres",
-    "user": "postgres.your-tenant-id",
-    "password": "your-super-secret-and-long-postgres-password",
-    "host": "localhost",
-    "port": 5432
+    "dbname": os.getenv("DBNAME"),
+    "user": os.getenv("USER"),
+    "password": os.getenv("PASSWORD"),
+    "host": os.getenv("HOST"),
+    "port": int(os.getenv("PORT", 5432))
 }
+table_name = os.getenv("TABLE_NAME")
+llm_model = os.getenv("LLM_MODEL")
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -219,7 +222,7 @@ async def analyze_comments_batch_ollama(comments: List[str], prompt: str = None,
         response = requests.post(
             "http://localhost:11434/api/generate",
             json={
-                "model": "llama3:instruct",
+                "model":  model,
                 "prompt": base_prompt,
                 "system": system_prompt,
                 "stream": False
@@ -299,13 +302,7 @@ def clean_timestamp(timestamp_str):
 
 def semantic_search_postgres(query: str, top_n: int):
     try:
-        conn = psycopg2.connect(
-            dbname="postgres",
-            user="postgres.your-tenant-id",
-            password="your-super-secret-and-long-postgres-password",
-            host="localhost",
-            port="5432"
-        )
+        conn = psycopg2.connect(**DB_CONFIG)
         cur = conn.cursor()
 
         query_embedding = model.encode(query).tolist()
@@ -457,7 +454,7 @@ def determine_review_genuinty(suspicious_comments: List[Dict]) -> List[Dict]:
         response = requests.post(
             "http://localhost:11434/api/generate",
             json={
-                "model": "llama3:instruct",
+                "model": f"{llm_model}",
                 "prompt": (
                     "You are a fake review evaluator. Your task is to classify reviews as either 'Genuine' or 'Fake' "
                     "based on the semantic similarity scores and behavioral signals provided below.\n\n"

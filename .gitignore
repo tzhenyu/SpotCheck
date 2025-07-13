@@ -1,4 +1,4 @@
-.env
+# .env
 backend/__pycache__/
 backend/embedcomments.py
 backend/embeddata.py
