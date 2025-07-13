@@ -1,10 +1,12 @@
-const API_BASE_URL = "http://127.0.0.1:8000";
+const API_BASE_URL = "http://127.0.0.1:8001";
 const DEBOUNCE_DELAY = 500;
 
 // Track already analyzed comments to avoid duplicate API calls and store results
 let analyzedComments = new Map(); // Changed from Set to Map to store results
 let isApiCallInProgress = false;
 let apiCallTimer = null;
+let lastOverlayRunTimestamp = 0;
+const OVERLAY_RUN_THROTTLE_MS = 1000;
 
 async function callTestEndpoint(comments) {
   try {
@@ -94,61 +96,48 @@ function displayResultsInComments(results) {
 }
 
 function showCommentsOverlay(comments) {
-  // Don't process if no comments
   if (!comments.length) return;
-  
-  // Check if these comments have already been processed
+  const now = Date.now();
+  if (now - lastOverlayRunTimestamp < OVERLAY_RUN_THROTTLE_MS) return;
+  lastOverlayRunTimestamp = now;
   const commentsHash = comments.join('|');
-  
-  // If already analyzed, display the cached results and return
   if (analyzedComments.has(commentsHash)) {
     displayResultsInComments(analyzedComments.get(commentsHash));
     return;
   }
-  
-  // Don't proceed if an API call is already in progress
   if (isApiCallInProgress) return;
-  
-  // Mark as in progress
   isApiCallInProgress = true;
-  
-  // Flag to track if we're making DOM changes to prevent observer loop
   window.isUpdatingCommentDOM = true;
-
-  // Remove previous overlay if exists
   let logDiv = document.getElementById('shopee-comments-overlay');
   if (logDiv) logDiv.remove();
-
-  // Create new overlay for loading indication using helper
   logDiv = ShopeeHelpers.createLoadingOverlay();
   document.body.appendChild(logDiv);
-  
-  // Get product name
   let productName = null;
   const productNameElement = document.querySelector('h1.vR6K3w');
   if (productNameElement) {
     productName = productNameElement.textContent.trim();
   }
-  
-  // Always use backend for analysis
-  window.LLMProcessing.analyzeCommentsWithBackendOnly(comments, productName).then(result => {
-    // Remove loading overlay when done
+  if (!window.LLMProcessing || typeof window.LLMProcessing.analyzeCommentsWithBackendOnly !== 'function') {
     logDiv.remove();
     isApiCallInProgress = false;
-    
+    const errorDiv = ShopeeHelpers.createErrorOverlay('LLMProcessing.analyzeCommentsWithBackendOnly is not available');
+    document.body.appendChild(errorDiv);
+    setTimeout(() => {
+      if (errorDiv.parentNode) errorDiv.remove();
+    }, 5000);
+    return;
+  }
+  window.LLMProcessing.analyzeCommentsWithBackendOnly(comments, productName).then(result => {
+    logDiv.remove();
+    isApiCallInProgress = false;
     if (result.error) {
-      // Show error in small overlay using helper
       const errorDiv = ShopeeHelpers.createErrorOverlay(result.message);
       document.body.appendChild(errorDiv);
-      
-      // Remove error after 5 seconds
       setTimeout(() => {
         if (errorDiv.parentNode) errorDiv.remove();
       }, 5000);
     } else {
-      // Store results for reuse
       analyzedComments.set(commentsHash, result);
-      // Display results in the comment divs
       displayResultsInComments(result);
     }
   });
@@ -170,6 +159,11 @@ function debouncedProcessComments() {
 }
 
 function showCommentsOverlay(comments) {
+  if (!comments.length) return;
+  const now = Date.now();
+  if (now - lastOverlayRunTimestamp < OVERLAY_RUN_THROTTLE_MS) return;
+  lastOverlayRunTimestamp = now;
+  
   // Don't process if no comments
   if (!comments.length) return;
   
@@ -273,7 +267,7 @@ function observeShopeeComments() {
   }
 
   const commentObserver = new MutationObserver(() => {
-    if (window.isUpdatingCommentDOM) return;
+    if (window.isUpdatingCommentDOM || isApiCallInProgress) return;
     debouncedProcessComments();
   });
 

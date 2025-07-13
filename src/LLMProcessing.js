@@ -66,12 +66,17 @@ async function analyzeCommentsWithBackendOnly(comments, productName = null) {
   }
 }
 
+// Dummy implementation to prevent ReferenceError
+async function analyzeCommentsDirectly(comments, apiKey, productName = null) {
+  return await analyzeCommentsWithPythonBackend(comments, null, productName);
+}
 
-// Export functions
-window.LLMProcessing = {
-  analyzeCommentsDirectly,
-  analyzeCommentsWithPythonBackend,
-  getStoredApiKey,
-  storeApiKey,
-  analyzeCommentsWithBackendOnly
-};
+// Ensure window.LLMProcessing is always defined
+if (typeof window.LLMProcessing === 'undefined') {
+  window.LLMProcessing = {};
+}
+window.LLMProcessing.analyzeCommentsDirectly = analyzeCommentsDirectly;
+window.LLMProcessing.analyzeCommentsWithPythonBackend = analyzeCommentsWithPythonBackend;
+window.LLMProcessing.getStoredApiKey = typeof getStoredApiKey !== 'undefined' ? getStoredApiKey : async () => null;
+window.LLMProcessing.storeApiKey = typeof storeApiKey !== 'undefined' ? storeApiKey : async () => {};
+window.LLMProcessing.analyzeCommentsWithBackendOnly = analyzeCommentsWithBackendOnly;

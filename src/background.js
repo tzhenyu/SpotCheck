@@ -21,7 +21,6 @@ function isShopeeProductPage(url) {
 async function callAPI(endpoint, data = null) {
   try {
     console.log(`Calling ${endpoint} from background script with data:`, data);
-    
     const options = {
       method: data ? 'POST' : 'GET',
       headers: {
@@ -30,18 +29,24 @@ async function callAPI(endpoint, data = null) {
       },
       cache: 'no-cache'
     };
-    
     if (data) {
       options.body = JSON.stringify(data);
     }
-    
-    const response = await fetch(`${API_BASE_URL}/${endpoint}`, options);
-    
-    if (!response.ok) {
-      throw new Error(`HTTP error ${response.status}`);
+    const url = `${API_BASE_URL}/${endpoint}`;
+    console.log('Fetch URL:', url, 'Options:', options);
+    const response = await fetch(url, options);
+    console.log('Fetch response status:', response.status);
+    let responseBody;
+    try {
+      responseBody = await response.text();
+      console.log('Fetch response body:', responseBody);
+    } catch (parseError) {
+      console.error('Error parsing response body:', parseError);
     }
-    
-    return await response.json();
+    if (!response.ok) {
+      throw new Error(`HTTP error ${response.status}: ${responseBody}`);
+    }
+    return JSON.parse(responseBody);
   } catch (error) {
     console.error(`Error calling ${endpoint}:`, error);
     throw error;

@@ -5,7 +5,7 @@
 
 // const API_KEY_STORAGE_KEY = "gemini_api_key";
 // Add the backend API URL constant
-const BACKEND_API_URL = "http://localhost:8000";
+const BACKEND_API_URL = "http://localhost:8001";
 // Auto features are always enabled (no toggles)
 const AUTO_EXTRACT_STORAGE_KEY = "auto_extract_enabled";
 const AUTO_UPLOAD_STORAGE_KEY = "auto_upload_enabled";

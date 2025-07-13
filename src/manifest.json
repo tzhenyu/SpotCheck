@@ -14,8 +14,8 @@
     "https://*.shopee.ph/*",
     "https://*.shopee.co.id/*",
     "https://*.shopee.com.my/*",
-    "http://127.0.0.1:8000/*",
-    "http://localhost:8000/*"
+    "http://127.0.0.1:8001/*",
+    "http://localhost:8001/*"
   ],
   "action": {
     "default_popup": "popup.html"
@@ -37,4 +37,3 @@
     }
   ]
 }
-
