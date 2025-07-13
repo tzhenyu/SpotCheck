@@ -12,6 +12,8 @@ import requests
 import uvicorn
 from sentence_transformers import SentenceTransformer
 from typing import List
+import json
+import requests
 # from adam import agent_executor
 
 model = SentenceTransformer("all-MiniLM-L6-v2")
@@ -50,6 +52,7 @@ class CommentData(BaseModel):
     metadata: List[Dict] = None
     prompt: Optional[str] = None
     product: Optional[str] = None
+    usernames: Optional[List[str]] = None
 
 class Query(BaseModel):
     text: str
@@ -81,6 +84,7 @@ app.add_middleware(
 async def embed(query: Query):
     embedding = model.encode(query.text).tolist()
     return {"embedding": embedding}
+
 @app.get("/")
 async def root():
     """Root endpoint to verify API is running"""
@@ -88,6 +92,7 @@ async def root():
     response = JSONResponse({"status": "API is running"})
     response.headers["Access-Control-Allow-Origin"] = "*"
     return response
+
 @app.post("/comments")
 async def process_comments(data: CommentData):
     """Store comments from Shopee in PostgreSQL database"""
@@ -164,14 +169,20 @@ async def analyze_comments(data: CommentData):
     comments_to_process = data.comments[:6]
     prompt = data.prompt
     product = data.product
+    usernames = [item.get("username") if isinstance(item, dict) else None for item in getattr(data, "metadata", [])[:6]] if data.metadata else [None]*len(comments_to_process)
     logger.info(f"Batch analyzing {len(comments_to_process)} comments with Ollama...")
     results = await analyze_comments_batch_ollama(comments_to_process, prompt=prompt, product=product)
     logger.info(f"Completed analysis of {len(results)} comments")
+    for i, username in enumerate(usernames):
+        if i < len(results):
+            results[i]["username"] = username
     suspicious_comments = analyze_suspicious_comment(results)
+    suspicious_comments_result = determine_review_genuinty(suspicious_comments)
     return {
         "message": f"Processed {len(results)} comments",
         "results": results,
-        "suspicious_comments": suspicious_comments
+        "suspicious_comments": suspicious_comments,
+        "suspicious_comments_result": suspicious_comments_result
     }
 
 
@@ -311,7 +322,7 @@ def semantic_search_postgres(query: str, top_n: int):
         print(f"Error during semantic search in Postgres: {error}, query: {query}, top_n: {top_n}")
         return None
 
-########################## LLM AGENT TOOLS
+########################## SEMANTIC FUNCTION
 
 def analyze_suspicious_comment(analysis_results: List[Dict]) -> List[Dict]:
     suspicious_comments = []
@@ -319,22 +330,187 @@ def analyze_suspicious_comment(analysis_results: List[Dict]) -> List[Dict]:
         explanation = result.get("explanation", "")
         if explanation.lower().startswith("suspicious"):
             verdict, sep, reason = explanation.partition("- ")
-            analysis = asuspicious_comment_semantic_search(result.get("comment"))
-            suspicious_comments.append(analysis)
-            print(suspicious_comments)
+            username = result.get("username")
+            if not username:
+                # Try to get username from metadata if available
+                if "metadata" in result and isinstance(result["metadata"], dict):
+                    username = result["metadata"].get("username")
+            if not username:
+                # Try to get username from top-level usernames list if available
+                idx = analysis_results.index(result)
+                if "usernames" in result:
+                    username = result["usernames"][idx] if idx < len(result["usernames"]) else None
+            semantic_analysis = suspicious_comment_semantic_search(result.get("comment"))
+            behavioral_analysis = query_duplicate_comment_across_products(result.get("comment"), table_name)
+            suspicious_comments.append({
+                "comment": result.get("comment"),
+                # "username": username,
+                "analysis": semantic_analysis,
+                "behavioral": behavioral_analysis
+            })
     return suspicious_comments
 
-def asuspicious_comment_semantic_search(comment: str) -> Dict:
+def suspicious_comment_semantic_search(comment: str) -> List[float]:
     try:
-        result = semantic_search_postgres(comment, top_n=5)
-        return result[0] if result else {}
+        result = semantic_search_postgres(comment, top_n=4)
+        if result:
+            return [row[4] for row in result if len(row) > 4]
+        return []
     except Exception as error:
         logger.error(f"Error analyzing suspicious comment: {error}, comment: {comment}")
-        return {"error": str(error), "comment": comment}
+        return []
 
-# response = agent_executor.invoke({"input": "your prompt here"})
+#################### BEHAVIORAL SEARCH
+
+def _execute_query_with_param(query, params):
+    try:
+        conn = psycopg2.connect(**DB_CONFIG)
+        cursor = conn.cursor()
+        cursor.execute(query, params)
+        result = cursor.fetchall()
+        cursor.close()
+        conn.close()
+        return result
+    except Exception as e:
+        logger.error(f"Error executing parameterized query: {str(e)} | Query: {query} | Params: {params}")
+        return None
+    
+
+def query_duplicate_comment_across_products(comment, table_name):
+    """Query for duplicate comments across products by a user."""
+    sql_query = f"""
+    SELECT username, comment, COUNT(DISTINCT source) AS product_count
+    FROM {table_name}
+    WHERE comment = %s
+    GROUP BY username, comment
+    HAVING COUNT(DISTINCT source) > {DUPLICATE_COMMENT_PRODUCT_THRESHOLD};
+    """
+    return _execute_query_with_param(sql_query, (comment,))
+
+def query_user_many_reviews_quickly(comment, username, table_name):
+    """Query for users who posted many reviews quickly."""
+    sql_query = f"""
+    SELECT username, MIN(timestamp) AS first, MAX(timestamp) AS last, COUNT(*) AS total
+    FROM {table_name}
+    WHERE comment = %s AND username = %s
+    GROUP BY username
+    HAVING COUNT(*) > {USER_FAST_REVIEW_COUNT} AND MAX(timestamp) - MIN(timestamp) < INTERVAL '{USER_FAST_REVIEW_INTERVAL}';
+    """
+    return _execute_query_with_param(sql_query, (comment, username))
+
+def query_same_comment_multiple_users_products(comment, username, table_name):
+    """Query for same comment posted by multiple users across products."""
+    sql_query = f"""
+    SELECT comment, COUNT(DISTINCT username) AS user_count, COUNT(DISTINCT source) AS product_count
+    FROM {table_name}
+    WHERE comment = %s AND username = %s
+    GROUP BY comment
+    HAVING user_count > 3 AND product_count > 3;
+    """
+    return _execute_query_with_param(sql_query, (comment, username))
+
+def query_generic_comment_across_products(comment, username, table_name):
+    """Query for generic comments across products."""
+    sql_query = f"""
+    SELECT comment, COUNT(DISTINCT source) AS product_count
+    FROM {table_name}
+    WHERE LENGTH(comment) < {GENERIC_COMMENT_LENGTH} AND comment = %s AND username = %s
+    GROUP BY comment
+    HAVING product_count > {GENERIC_COMMENT_PRODUCT_THRESHOLD};
+    """
+    return _execute_query_with_param(sql_query, (comment, username))
+
+def query_high_avg_rating_users(comment, username, table_name):
+    """Query for users with high average rating."""
+    sql_query = f"""
+    SELECT username, AVG(rate) AS avg_rating, COUNT(*) AS review_count
+    FROM {table_name}
+    WHERE comment = %s AND username = %s
+    GROUP BY username
+    HAVING review_count >= {HIGH_AVG_RATING_COUNT} AND avg_rating = {HIGH_AVG_RATING};
+    """
+    return _execute_query_with_param(sql_query, (comment, username))
+
+def query_review_burst(comment, username, table_name):
+    """Query for review bursts by a user."""
+    sql_query = f"""
+    SELECT source, DATE_TRUNC('minute', timestamp) AS minute, COUNT(*) AS burst_count
+    FROM {table_name}
+    WHERE comment = %s AND username = %s
+    GROUP BY source, minute
+    HAVING COUNT(*) > {BURST_COUNT_THRESHOLD};
+    """
+    return _execute_query_with_param(sql_query, (comment, username))
+
+def determine_review_genuinty(suspicious_comments: List[Dict]) -> List[Dict]:
+    semantic_scores = [item["analysis"] for item in suspicious_comments if "analysis" in item]
+    behavioral_results = [item["behavioral"] for item in suspicious_comments if "behavioral" in item]
+    try:
+        response = requests.post(
+            "http://localhost:11434/api/generate",
+            json={
+                "model": "llama3:instruct",
+                "prompt": (
+                    "You are a fake review evaluator. Your task is to classify reviews as either 'Genuine' or 'Fake' "
+                    "based on the semantic similarity scores and behavioral signals provided below.\n\n"
+                    f"Semantic: {json.dumps(semantic_scores)}\n"
+                    f"Behavioral: {json.dumps(behavioral_results)}\n\n"
+                    "Respond strictly with:\n"
+                    "1. A **Python-style list** of classifications in this exact format:\n"
+                    "   ['Genuine', 'Fake', 'Genuine']\n"
+                    "2. A **Python-style list** of single sentence explanations for each review, matching the order above.\n\n"
+                    "Do NOT add any introductions or explanations before the lists.\n"
+                    "Begin your response immediately with the classification list, then the explanation list.\n"
+                    "Example response:\n"
+                    "['Genuine', 'Fake']\n"
+                    "['Relevant and product-specific.', 'Behavioral anomalies detected.']"
+                ),
+                "system": "You are a strict output generator. Follow the output format exactly and avoid unnecessary text.",
+                "stream": False
+            },
+            timeout=60
+        )
+        response.raise_for_status()
+        result_json = response.json()
+        result_text = result_json.get("response", "").strip()
+        lines = [line.strip() for line in result_text.split('\n') if line.strip()]
+        verdicts = []
+        explanations = []
+        for line in lines:
+            if line.startswith("[") and line.endswith("]"):
+                try:
+                    parsed = json.loads(line.replace("'", '"'))
+                    if not verdicts:
+                        verdicts = parsed
+                    else:
+                        explanations = parsed
+                except Exception as e:
+                    logger.error(f"Error parsing list: {str(e)} | line: {line}")
+        result = []
+        for idx, item in enumerate(suspicious_comments):
+            verdict = verdicts[idx] if idx < len(verdicts) else None
+            explanation = explanations[idx] if idx < len(explanations) else None
+            result.append({
+                "comment": item.get("comment"),
+                "verdict": verdict,
+                "explanation": explanation
+            })
+        print(result)
+        return result
+    except Exception as e:
+        logger.error(f"Error in determine_review_genuinty: {str(e)}")
+        return [
+            {
+                "comment": item.get("comment"),
+                "verdict": None,
+                "explanation": f"Error: {str(e)}"
+            }
+            for item in suspicious_comments
+        ]
 
 if __name__ == "__main__":
     import uvicorn
     logger.info("Starting API server on http://127.0.0.1:8001")
     uvicorn.run("backend:app", host="0.0.0.0", port=8001, reload=False)
+
+
