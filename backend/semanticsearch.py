@@ -1,14 +1,13 @@
 import psycopg2
-import numpy as np
 import requests
 
 def get_embedding(query_text):
     try:
-        headers = {"Authorization": "Bearer YOUR_API_KEY"}  # Replace with your actual key/token
+        # headers = {"Authorization": "Bearer YOUR_API_KEY"}  # Replace with your actual key/token
         response = requests.post(
             "http://127.0.0.1:8001/embed",
             json={"text": query_text},
-            headers=headers
+            # headers=headers
         )
         response.raise_for_status()
         data = response.json()

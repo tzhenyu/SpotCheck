@@ -167,7 +167,7 @@ async def analyze_comments(data: CommentData):
     logger.info(f"Batch analyzing {len(comments_to_process)} comments with Ollama...")
     results = await analyze_comments_batch_ollama(comments_to_process, prompt=prompt, product=product)
     logger.info(f"Completed analysis of {len(results)} comments")
-    suspicious_comments = get_suspicious_comments_from_analysis(results)
+    suspicious_comments = analyze_suspicious_comment(results)
     return {
         "message": f"Processed {len(results)} comments",
         "results": results,
@@ -278,21 +278,59 @@ def clean_timestamp(timestamp_str):
     return None
 
 
+def semantic_search_postgres(query: str, top_n: int):
+    try:
+        conn = psycopg2.connect(
+            dbname="postgres",
+            user="postgres.your-tenant-id",
+            password="your-super-secret-and-long-postgres-password",
+            host="localhost",
+            port="5432"
+        )
+        cur = conn.cursor()
+
+        query_embedding = model.encode(query).tolist()
+        
+        cur.execute(
+            """
+            SELECT id, comment, username, rating,
+                   1 - (embedding <=> %s::vector) AS similarity
+            FROM product_reviews
+            ORDER BY embedding <=> %s::vector
+            LIMIT %s;
+            """,
+            (query_embedding, query_embedding, top_n)
+        )
+
+        results = cur.fetchall()
+        cur.close()
+        conn.close()
+        return results
+
+    except Exception as error:
+        print(f"Error during semantic search in Postgres: {error}, query: {query}, top_n: {top_n}")
+        return None
 
 ########################## LLM AGENT TOOLS
 
-def get_suspicious_comments_from_analysis(analysis_results: List[Dict]) -> List[Dict]:
+def analyze_suspicious_comment(analysis_results: List[Dict]) -> List[Dict]:
     suspicious_comments = []
     for result in analysis_results:
         explanation = result.get("explanation", "")
         if explanation.lower().startswith("suspicious"):
             verdict, sep, reason = explanation.partition("- ")
-            suspicious_comments.append({
-                "comment": result.get("comment"),
-                "verdict": verdict.strip(),
-                "reason": reason.strip() if sep else ""
-            })
+            analysis = asuspicious_comment_semantic_search(result.get("comment"))
+            suspicious_comments.append(analysis)
+            print(suspicious_comments)
     return suspicious_comments
+
+def asuspicious_comment_semantic_search(comment: str) -> Dict:
+    try:
+        result = semantic_search_postgres(comment, top_n=5)
+        return result[0] if result else {}
+    except Exception as error:
+        logger.error(f"Error analyzing suspicious comment: {error}, comment: {comment}")
+        return {"error": str(error), "comment": comment}
 
 # response = agent_executor.invoke({"input": "your prompt here"})
 
