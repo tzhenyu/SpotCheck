@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Response, Request
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 import logging
 from fastapi.responses import JSONResponse
@@ -8,10 +8,11 @@ import re
 import datetime
 from dotenv import load_dotenv
 import psycopg2
-from psycopg2.extras import RealDictCursor
 import requests
 import uvicorn
 from sentence_transformers import SentenceTransformer
+from typing import List
+# from adam import agent_executor
 
 model = SentenceTransformer("all-MiniLM-L6-v2")
 print("Loading embedding model, please hold!")
@@ -19,6 +20,16 @@ print("Loading embedding model, please hold!")
 # Load environment variables from .env file
 load_dotenv()
 
+#Constant for PostgreSQL statement
+DUPLICATE_COMMENT_PRODUCT_THRESHOLD = 3
+USER_FAST_REVIEW_COUNT = 5
+USER_FAST_REVIEW_INTERVAL = "1 hour"
+GENERIC_COMMENT_LENGTH = 40
+GENERIC_COMMENT_PRODUCT_THRESHOLD = 3
+HIGH_AVG_RATING = 5.0
+HIGH_AVG_RATING_COUNT = 5
+BURST_COUNT_THRESHOLD = 5
+table_name = "product_reviews"
 # Database configuration
 DB_CONFIG = {
     "dbname": "postgres",
@@ -32,28 +43,6 @@ DB_CONFIG = {
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-def clean_timestamp(timestamp_str):
-    """
-    Clean and format timestamp string for PostgreSQL.
-    Extracts proper timestamp from various string formats.
-    Returns None for invalid formats.
-    """
-    if not timestamp_str:
-        return None
-        
-    # Extract timestamp in format YYYY-MM-DD HH:MM
-    timestamp_match = re.search(r'(\d{4}-\d{2}-\d{2}\s\d{2}:\d{2})', timestamp_str)
-    if timestamp_match:
-        # Return PostgreSQL-compatible timestamp
-        try:
-            timestamp = timestamp_match.group(1)
-            # Validate by parsing
-            datetime.datetime.strptime(timestamp, '%Y-%m-%d %H:%M')
-            return timestamp
-        except ValueError:
-            return None
-    
-    return None
 
 # Create data models
 class CommentData(BaseModel):
@@ -68,6 +57,7 @@ class Query(BaseModel):
 
 # Create FastAPI application
 app = FastAPI()
+
 
 # Add custom middleware to add CORS headers to every response
 @app.middleware("http")
@@ -98,6 +88,92 @@ async def root():
     response = JSONResponse({"status": "API is running"})
     response.headers["Access-Control-Allow-Origin"] = "*"
     return response
+@app.post("/comments")
+async def process_comments(data: CommentData):
+    """Store comments from Shopee in PostgreSQL database"""
+    logger.info(f"Received {len(data.comments)} comments")
+    
+    # Only store metadata if provided, without Gemini processing
+    if data.metadata and len(data.metadata) > 0:
+        logger.info(f"Storing {len(data.metadata)} comments in database")
+        try:
+            conn = get_db_connection()
+            cursor = conn.cursor()
+            
+            # Create a more efficient bulk insert
+            insert_values = []
+            for item in data.metadata:
+                # Clean and format the timestamp for database insertion
+                raw_timestamp = item.get('timestamp')
+                clean_ts = clean_timestamp(raw_timestamp)
+                
+                insert_values.append((
+                    item.get('comment'), 
+                    item.get('username'), 
+                    item.get('rating'), 
+                    item.get('source'), 
+                    item.get('product'), 
+                    clean_ts  # Use cleaned timestamp
+                ))
+            
+            # Use executemany for better performance with large datasets
+            # Filter out rows with NULL timestamps to avoid database errors
+            valid_values = [row for row in insert_values if row[5] is not None]
+            
+            if not valid_values:
+                logger.warning("No valid timestamps found in any comments, skipping database insertion")
+                return {
+                    "message": "No valid timestamps found in comments, nothing stored", 
+                    "total_stored": 0
+                }
+            
+            cursor.executemany(
+                """
+                INSERT INTO product_reviews (comment, username, rating, source, product, page_timestamp)
+                VALUES (%s, %s, %s, %s, %s, %s)
+                ON CONFLICT DO NOTHING
+                """, 
+                valid_values
+            )
+            
+            conn.commit()
+            cursor.close()
+            conn.close()
+            logger.info(f"Successfully stored {len(insert_values)} comments in database")
+            
+            return {
+                "message": f"Successfully stored {len(insert_values)} comments in database", 
+                "total_stored": len(insert_values)
+            }
+        except Exception as e:
+            logger.error(f"Database error storing comments: {str(e)}")
+            return JSONResponse(
+                status_code=500,
+                content={"message": f"Database error: {str(e)}"}
+            )
+    else:
+        return {
+            "message": "No metadata provided for storage", 
+            "total_stored": 0
+        }
+
+
+@app.post("/analyze")
+async def analyze_comments(data: CommentData):
+    logger.info(f"Received {len(data.comments)} comments")
+    comments_to_process = data.comments[:6]
+    prompt = data.prompt
+    product = data.product
+    logger.info(f"Batch analyzing {len(comments_to_process)} comments with Ollama...")
+    results = await analyze_comments_batch_ollama(comments_to_process, prompt=prompt, product=product)
+    logger.info(f"Completed analysis of {len(results)} comments")
+    suspicious_comments = get_suspicious_comments_from_analysis(results)
+    return {
+        "message": f"Processed {len(results)} comments",
+        "results": results,
+        "suspicious_comments": suspicious_comments
+    }
+
 
 async def analyze_comments_batch_ollama(comments: List[str], prompt: str = None, product: str = None) -> List[Dict]:
     """Process multiple comments in a single Ollama API call"""
@@ -178,106 +254,32 @@ def get_db_connection():
         logger.error(f"Database connection error: {str(e)}")
         raise
 
-@app.get("/upload")
-async def upload_data():
-    """Endpoint to fetch authors from the database"""
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        cursor.execute("SELECT * FROM authors;")
-        results = cursor.fetchall()
-        cursor.close()
-        conn.close()
-        return {"message": "Data retrieved successfully", "authors": results}
-    except Exception as e:
-        logger.error(f"Error fetching authors: {str(e)}")
-        return JSONResponse(
-            status_code=500,
-            content={"message": f"Database error: {str(e)}"}
-        )
-
-@app.post("/comments")
-async def process_comments(data: CommentData):
-    """Store comments from Shopee in PostgreSQL database"""
-    logger.info(f"Received {len(data.comments)} comments")
-    
-    # Only store metadata if provided, without Gemini processing
-    if data.metadata and len(data.metadata) > 0:
-        logger.info(f"Storing {len(data.metadata)} comments in database")
+def clean_timestamp(timestamp_str):
+    """
+    Clean and format timestamp string for PostgreSQL.
+    Extracts proper timestamp from various string formats.
+    Returns None for invalid formats.
+    """
+    if not timestamp_str:
+        return None
+        
+    # Extract timestamp in format YYYY-MM-DD HH:MM
+    timestamp_match = re.search(r'(\d{4}-\d{2}-\d{2}\s\d{2}:\d{2})', timestamp_str)
+    if timestamp_match:
+        # Return PostgreSQL-compatible timestamp
         try:
-            conn = get_db_connection()
-            cursor = conn.cursor()
-            
-            # Create a more efficient bulk insert
-            insert_values = []
-            for item in data.metadata:
-                # Clean and format the timestamp for database insertion
-                raw_timestamp = item.get('timestamp')
-                clean_ts = clean_timestamp(raw_timestamp)
-                
-                insert_values.append((
-                    item.get('comment'), 
-                    item.get('username'), 
-                    item.get('rating'), 
-                    item.get('source'), 
-                    item.get('product'), 
-                    clean_ts  # Use cleaned timestamp
-                ))
-            
-            # Use executemany for better performance with large datasets
-            # Filter out rows with NULL timestamps to avoid database errors
-            valid_values = [row for row in insert_values if row[5] is not None]
-            
-            if not valid_values:
-                logger.warning("No valid timestamps found in any comments, skipping database insertion")
-                return {
-                    "message": "No valid timestamps found in comments, nothing stored", 
-                    "total_stored": 0
-                }
-            
-            cursor.executemany(
-                """
-                INSERT INTO product_reviews (comment, username, rating, source, product, page_timestamp)
-                VALUES (%s, %s, %s, %s, %s, %s)
-                ON CONFLICT DO NOTHING
-                """, 
-                valid_values
-            )
-            
-            conn.commit()
-            cursor.close()
-            conn.close()
-            logger.info(f"Successfully stored {len(insert_values)} comments in database")
-            
-            return {
-                "message": f"Successfully stored {len(insert_values)} comments in database", 
-                "total_stored": len(insert_values)
-            }
-        except Exception as e:
-            logger.error(f"Database error storing comments: {str(e)}")
-            return JSONResponse(
-                status_code=500,
-                content={"message": f"Database error: {str(e)}"}
-            )
-    else:
-        return {
-            "message": "No metadata provided for storage", 
-            "total_stored": 0
-        }
+            timestamp = timestamp_match.group(1)
+            # Validate by parsing
+            datetime.datetime.strptime(timestamp, '%Y-%m-%d %H:%M')
+            return timestamp
+        except ValueError:
+            return None
+    
+    return None
 
-@app.post("/analyze")
-async def analyze_comments(data: CommentData):
-    logger.info(f"Received {len(data.comments)} comments")
-    comments_to_process = data.comments[:6]
-    prompt = data.prompt
-    product = data.product
-    logger.info(f"Batch analyzing {len(comments_to_process)} comments with Ollama...")
-    results = await analyze_comments_batch_ollama(comments_to_process, prompt=prompt, product=product)
-    logger.info(f"Completed analysis of {len(results)} comments")
-    return {
-        "message": f"Processed {len(results)} comments",
-        "results": results
-    }
+
+
+########################## LLM AGENT TOOLS
 
 def get_suspicious_comments_from_analysis(analysis_results: List[Dict]) -> List[Dict]:
     suspicious_comments = []
@@ -292,35 +294,8 @@ def get_suspicious_comments_from_analysis(analysis_results: List[Dict]) -> List[
             })
     return suspicious_comments
 
-def semantic_search_postgres(query: str, top_n: 5):
-    try:
-        conn = psycopg2.connect(**DB_CONFIG)
-        cur = conn.cursor()
+# response = agent_executor.invoke({"input": "your prompt here"})
 
-        # Load model and encode query
-        query_embedding = embed(query)
-
-        # Perform the SQL query directly on the table using pgvector
-        cur.execute(
-            """
-            SELECT id, comment, username, rating,
-                   1 - (embedding <=> %s::vector) AS similarity
-            FROM product_reviews
-            ORDER BY embedding <=> %s::vector
-            LIMIT %s;
-            """,
-            (query_embedding, query_embedding, top_n)
-        )
-
-        results = cur.fetchall()
-        cur.close()
-        conn.close()
-        return results
-
-    except Exception as error:
-        print(f"Error during semantic search in Postgres: {error}, query: {query}, top_n: {top_n}")
-        return None
-    
 if __name__ == "__main__":
     import uvicorn
     logger.info("Starting API server on http://127.0.0.1:8001")
