@@ -178,6 +178,17 @@ async def analyze_comments(data: CommentData):
             results[i]["username"] = username
     suspicious_comments = analyze_suspicious_comment(results)
     suspicious_comments_result = determine_review_genuinty(suspicious_comments)
+    # Update suspicious_comments with verdict and explanation from suspicious_comments_result
+    for idx, item in enumerate(suspicious_comments):
+        if idx < len(suspicious_comments_result):
+            item["verdict"] = suspicious_comments_result[idx].get("verdict")
+            item["explanation"] = suspicious_comments_result[idx].get("explanation")
+    # Update results with verdict/explanation for suspicious comments for browser consumption
+    for res in results:
+        for suspicious in suspicious_comments:
+            if res.get("comment") == suspicious.get("comment"):
+                res["verdict"] = suspicious.get("verdict")
+                res["explanation"] = suspicious.get("explanation")
     return {
         "message": f"Processed {len(results)} comments",
         "results": results,
@@ -189,20 +200,18 @@ async def analyze_comments(data: CommentData):
 async def analyze_comments_batch_ollama(comments: List[str], prompt: str = None, product: str = None) -> List[Dict]:
     """Process multiple comments in a single Ollama API call"""
     try:
-        base_prompt = prompt if prompt else (
-            
+        base_prompt = prompt if prompt else ""
+        system_prompt = (
+            "You are a fake review evaluator for e-commerce.\n\n"
+            "Given a product and several Shopee reviews, classify each review as:\n"
+            "- Genuine: Relevant, product-specific, likely from a real user.\n"
+            "- Suspicious: Repetitive, vague, overly positive, or possibly AI-generated.\n"
+            "- Not Relevant: Unrelated to the product.\n\n"
+            "Respond with a numbered list using this format:\n"
+            "1. <Verdict> - (Short reason)\n"
+            "Keep reasons under 15 words. Don’t repeat review text.\n"
+            "Do not flag review as suspicious just because it used other language."
         )
-        system_prompt = """
-        You are a fake review evaluator for e-commerce.\n\n
-        Given a product and several Shopee reviews, classify each review as:\n
-        - Genuine: Relevant, product-specific, likely from a real user.\n
-        - Suspicious: Repetitive, vague, overly positive, or possibly AI-generated.\n
-        - Not Relevant: Unrelated to the product.\n\n
-        Respond with a numbered list using this format:\n
-        1. <Verdict> - (Short reason)\n
-        Keep reasons under 15 words. Don’t repeat review text. 
-        Do not flag review as suspicious just because it used other language.      
-        """
         if product:
             base_prompt += f"Product: {product}\n"
         for i, comment in enumerate(comments, 1):
@@ -217,7 +226,6 @@ async def analyze_comments_batch_ollama(comments: List[str], prompt: str = None,
             },
             timeout=60
         )
-        # print(base_prompt)
         response.raise_for_status()
         result_json = response.json()
         result_text = result_json.get("response", "").strip()
@@ -232,7 +240,7 @@ async def analyze_comments_batch_ollama(comments: List[str], prompt: str = None,
         for idx, comment in enumerate(comments):
             if idx in comment_map:
                 result_line = comment_map[idx]
-                is_fake = "fake" in result_line.lower()
+                is_fake = "fake" in result_line.lower() or "suspicious" in result_line.lower()
                 explanation = re.sub(r'^\d+\.\s*', '', result_line)
                 explanation = explanation.strip()
             else:
