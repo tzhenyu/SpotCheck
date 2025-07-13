@@ -342,7 +342,7 @@ function resetAccumulatedComments() {
 function handleUrlChange(message) {
   console.log("CommentExtractor handling URL change:", message);
   
-  // Also check for extracted comments in the window cache (set by Gemini analysis flow)
+  // Also check for extracted comments in the window cache
   const commentsToUpload = accumulatedComments.length > 0 ? 
     accumulatedComments : 
     (window.extractedCommentsCache && window.extractedCommentsCache.length > 0 ? 

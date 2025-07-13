@@ -3,7 +3,7 @@
  * Handles API key management and comment extraction through the popup UI
  */
 
-const API_KEY_STORAGE_KEY = "gemini_api_key";
+// const API_KEY_STORAGE_KEY = "gemini_api_key";
 // Add the backend API URL constant
 const BACKEND_API_URL = "http://localhost:8000";
 // Auto features are always enabled (no toggles)

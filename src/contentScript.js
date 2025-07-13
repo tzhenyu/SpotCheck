@@ -36,28 +36,27 @@ async function callTestEndpoint(comments) {
   }
 }
 
-// Function to analyze comments using DirectGeminiAPI
-async function analyzeCommentsWithGemini(comments, productName = null) {
+async function analyzeCommentsWithLLM(comments, productName = null) {
   try {
-    console.log("Analyzing comments with Gemini API...");
+    console.log("Analyzing comments with Ollama API...");
     
     // Check for stored API key
-    const apiKey = await window.DirectGeminiAPI.getStoredApiKey();
+    const apiKey = await window.LLMProcessing.getStoredApiKey();
     
     // If no API key is found, return error
     if (!apiKey) {
       return {
         error: true,
-        message: "API key is required for Gemini analysis. Please set it in the extension popup."
+        message: "Ollama not detected! Is backend server on?"
       };
     }
     
-    // Call Gemini API to analyze comments
-    const result = await window.DirectGeminiAPI.analyzeCommentsDirectly(comments, apiKey, productName);
+    // Call Ollama API to analyze comments
+    const result = await window.LLMProcessing.analyzeCommentsDirectly(comments, apiKey, productName);
     return result;
   } catch (error) {
-    console.error("Error analyzing with Gemini:", error);
-    return { message: `Gemini Analysis Error: ${error.message}`, error: true };
+    console.error("Error analyzing with LLM:", error);
+    return { message: `LLM Analysis Error: ${error.message}`, error: true };
   }
 }
 
@@ -132,7 +131,7 @@ function showCommentsOverlay(comments) {
   }
   
   // Always use backend for analysis
-  window.DirectGeminiAPI.analyzeCommentsWithBackendOnly(comments, productName).then(result => {
+  window.LLMProcessing.analyzeCommentsWithBackendOnly(comments, productName).then(result => {
     // Remove loading overlay when done
     logDiv.remove();
     isApiCallInProgress = false;
@@ -208,7 +207,7 @@ function showCommentsOverlay(comments) {
   }
   
   // Always use backend for analysis
-  window.DirectGeminiAPI.analyzeCommentsWithBackendOnly(comments, productName).then(result => {
+  window.LLMProcessing.analyzeCommentsWithBackendOnly(comments, productName).then(result => {
     // Remove loading overlay when done
     logDiv.remove();
     isApiCallInProgress = false;
@@ -497,7 +496,6 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     analyzedComments.clear();
     
     // Forward the URL change message to the CommentExtractor to handle uploads
-    // We need to do this even when Gemini analysis is enabled
     if (window.CommentExtractor) {
       // Make sure we're setting uploadComments to true
       const urlChangeRequest = {...request, uploadComments: true};
