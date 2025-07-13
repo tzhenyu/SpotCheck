@@ -1,13 +1,10 @@
 import logging
 from pydantic import BaseModel
 import psycopg2
-from sentence_transformers import SentenceTransformer
 from langchain_core.tools import tool
 from langchain_ollama import ChatOllama
 from langgraph.prebuilt import create_react_agent
-from langchain.agents import AgentExecutor
 import requests
-from typing import Any
 #Constant for PostgreSQL statement
 DUPLICATE_COMMENT_PRODUCT_THRESHOLD = 3
 USER_FAST_REVIEW_COUNT = 5
