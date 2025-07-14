@@ -1,54 +1,139 @@
-### I need y'all help: Scrape some data for behavioral analysis
+<p align="center">
+<img src="https://i.ibb.co/przbt9cW/57bda6ed-b416-4191-9d6e-815d743b13ab-1.jpg" alt="logo" border="0"width="180" height="200">
+</p>
+<p align="center">Fake Review Detection System for Shopee.</p>
 
-Scope:
-- Shopee
-- Shirts category
-- Each member extract comment on 15 different products
+**Spotcheck** is built to solve the problem of misleading reviews in online shopping. By combining a browser extension, LLM-powered backend, and a hybrid vector-relational database (Supabase), Spotcheck delivers real-time verdicts such as:
 
-#### Set up Tailscale
-1. Install tailscale, google it yourself
-2. Join this https://login.tailscale.com/uinv/i1db424acee175eca. Make sure you login with the same account as the client.
-#### Git Pull
-1. Commit your branch to prevent any loss, better if push
-2. In GitHub, change to the branch "feature_relational_database"
-```Source Control > Repository > a branch name```
+- ✅ Genuine  
+- ❌ Suspicious  
+- ⚠️ Irrelevant  
 
-```Click that branch name, click "origin/feature_relational_database"```
+## 📌 How it works
+1. **User visits** a Shopee product page.  
+2. **Extension scrapes** all reviews.  
+3. **Backend analyzes** each review using LLMs and past data.  
+4. **Verdicts and explanations** are shown inline.  
+5. **User shops** with more confidence and clarity.
 
-2. Git pull it
+## 🧭 Scope
 
-#### Open the backend server
-1. in the Terimnal:
-```bash 
+- 🛒 Shopee as e-commerce platform
+- 📌 Focused on one store per in-stance
+- 🐧 Linux-based local installation
+
+
+## 🧱 Solution Architecture
+
+### ⚙️ Tech Stack
+
+| Component         | Description                                      |
+|------------------|--------------------------------------------------|
+| **Browser Extension** | Scrapes and displays verdicts on Shopee          |
+| **FastAPI**          | Backend server managing LLM logic                |
+| **MiniLM (Local)**   | Embedding generation and semantic analysis       |
+| **Supabase**         | Relational + vector database backend             |
+| **pgvector**         | Embedding similarity search                      |
+| **Python**           | Data pipeline, inference, and backend logic     |
+
+
+### 🔍 Browser Extension
+
+- **Scrapes data** from Shopee product pages:
+  - Username  
+  - Comment content  
+  - Timestamp  
+  - Star rating  
+  - Product name  
+  - Product URL  
+
+- **Sends** the data to the backend server.
+- **Displays** final verdicts and explanations directly on the page.
+
+
+
+### 🧠 Backend – LLM Inference & Decision Engine
+
+Three-stage LLM pipeline:
+
+| LLM | Task |
+|-----|------|
+| **LLM 1** | Check if the review is genuine, suspicious, or unrelevant |
+| **LLM 2** | Analyze suspicious review with behavioral and semantic analysis|
+| **LLM 3** | Determine if suspicious review is genuine or fake based on analysis  |
+
+### 🗃️ Supabase (Data Layer)
+
+- **PostgreSQL (Relational DB)**:
+  - Stores review metadata (user, time, product info)
+  - Hosts external datasets (e.g., Kaggle 100k reviews)
+  - Enables behavioral tracking with SQL
+
+- **pgvector (Vector DB)**:
+  - Stores comment embeddings
+  - Powers semantic similarity (RAG-like behavior)
+  - Helps detect duplicate or related fake reviews
+
+
+
+### 🔁 Continuous Improvement
+
+- New reviews and feedback are **logged for retraining**
+- External datasets are **used to fine-tune accuracy**
+- LLMs are **self-hosted locally** for fast and private inference
+
+## 🚀 Installation
+### Use Cloud infra
+#### Requirements
+- Python 3.12.3 - backend server
+- Chromium-based browser - for extension
+
+#### Deployment
+1. Install python library
+```bash
 pip install -r requirements.txt
+```
+2. Run backend server
+```bash
 python ./backend/backend.py
 ```
-If it look like this below, you did it correct.
-```
-> python ./backend/backend.py
-INFO:__main__:Starting API server on http://127.0.0.1:8000
-INFO:     Started server process [41750]
-INFO:     Waiting for application startup.
-INFO:     Application startup complete.
-INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
-```
+3. Install browser extension
+- Open chromium-based browser
+- Go to extension settings
+- Enable developer mode
+- Click "load unpacked"
+- Select ```src``` folder from this repo
+4. Access Shopee product page to try!
 
-#### Install the extension 
-1. Go to your browser settings > extension
-2. enable developer mode
-3. press load unpacked, it will prompt you to open folder (if cant find it just google it yourself)
-4. load the "src" folder from this git repo
-5. The extension should be installed in your browser.
-6. Pin it on your toolbar, convenient for you
 
-#### Scrape the data 
-1. Go to any shopee product webpage
-2. The product ratings section can choose what comment you want, choose "With Comments" 
-3. Click the extension from toolbar, it should show "6 comments extracted"
-4. Click the "extract all pages (30)" buttons
-5. it will automatically navigate comment page, let it sit, dont do anything
-6. After it stopped, means its done. 
-8. There's a "upload to sql server" button. Click it
-9. If there's a successful message, you are done!
+### Deploy Locally
+#### Requirements
+- Ollama - to run LLM locally
+- GPU with 8GB VRAM (preferably) - run LLM locally
+- Supabase - relational DB + vector DB
+- Python 3.12.3 - backend server
+- Chromium browser - for extension
+> Full setup guide (extension, API endpoints, environment setup, model config) will be released in the next development phase.
 
-#### Repeat it for 15 different pages
+## Performance
+| Run        | `analyze_comments` (Local LLM) | `analyze_comments` (Gemini LLM) |
+| ---------- | ------------------------------ | ------------------------------- |
+| 1          | 4.08                           | 14.57                           |
+| 2          | 4.84                           | 24.44                           |
+| 3          | 4.55                           | 25.17                           |
+| 4          | 11.09                          | 16.54                           |
+| 5          | 11.15                          | 11.18                           |
+| **Avg** | **7.14s**                      | **18.38s**                      |
+
+Local LLM is **~61.14%** faster than Gemini LLM on average.
+
+## 🙌 Credits
+Brought to you by team **TARUMT NOT TARC**
+- TAN ZHEN YU
+- JONATHAN HO YOON CHOON
+- LYE WEI LUN
+- TAN GUO ZHI
+
+
+
+
