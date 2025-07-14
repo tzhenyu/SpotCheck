@@ -3,13 +3,17 @@
  * @param {string[]} comments - Array of comments to analyze
  * @param {string} prompt - Optional prompt to send to backend
  * @param {string} product - Optional product name
+ * @param {string} apiKey - Optional Gemini API key
  * @returns {Promise<object>} Analysis results
  */
-async function analyzeCommentsWithPythonBackend(comments, prompt = null, product = null) {
+async function analyzeCommentsWithPythonBackend(comments, prompt = null, product = null, apiKey = null) {
   try {
     const body = { comments };
     if (prompt) body.prompt = prompt;
     if (product) body.product = product;
+    if (apiKey) body.gemini_api_key = apiKey;
+    
+    console.log("Sending analyze request to backend with API key:", apiKey ? "Yes (masked for security)" : "No");
     const response = await fetch("http://127.0.0.1:8001/analyze", {
       method: "POST",
       headers: {
@@ -59,24 +63,65 @@ async function analyzeCommentsWithBackendOnly(comments, productName = null) {
     if (productName) {
       prompt = `Product name: ${productName}`;
     }
-    return await window.LLMProcessing.analyzeCommentsWithPythonBackend(comments, prompt, productName);
+    
+    // Get the stored API key
+    let apiKey = null;
+    try {
+      apiKey = await new Promise(resolve => {
+        chrome.storage.local.get(["gemini_api_key"], (result) => {
+          resolve(result["gemini_api_key"] || null);
+        });
+      });
+      console.log("Using stored API key:", apiKey ? "Yes (masked for security)" : "No");
+    } catch (keyError) {
+      console.warn("Could not retrieve API key:", keyError);
+    }
+    
+    return await window.LLMProcessing.analyzeCommentsWithPythonBackend(comments, prompt, productName, apiKey);
   } catch (error) {
     console.error("Error analyzing with backend only:", error);
     return { message: `Backend Analysis Error: ${error.message}`, error: true };
   }
 }
 
-// Dummy implementation to prevent ReferenceError
+// Implementation to analyze comments with the API key
 async function analyzeCommentsDirectly(comments, apiKey, productName = null) {
-  return await analyzeCommentsWithPythonBackend(comments, null, productName);
+  console.log("Analyzing comments with API key:", apiKey ? "Yes (masked for security)" : "No");
+  return await analyzeCommentsWithPythonBackend(comments, null, productName, apiKey);
 }
 
 // Ensure window.LLMProcessing is always defined
 if (typeof window.LLMProcessing === 'undefined') {
   window.LLMProcessing = {};
 }
+// Helper function to get the stored Gemini API key
+async function getStoredApiKey() {
+  try {
+    return new Promise((resolve) => {
+      chrome.storage.local.get(["gemini_api_key"], (result) => {
+        const apiKey = result["gemini_api_key"];
+        console.log("Retrieved API key from storage:", apiKey ? "Yes (masked)" : "No");
+        resolve(apiKey || null);
+      });
+    });
+  } catch (error) {
+    console.error("Error retrieving API key:", error);
+    return null;
+  }
+}
+
+// Helper function to store the Gemini API key
+async function storeApiKey(apiKey) {
+  return new Promise((resolve) => {
+    chrome.storage.local.set({ "gemini_api_key": apiKey }, () => {
+      console.log("API key stored successfully");
+      resolve();
+    });
+  });
+}
+
 window.LLMProcessing.analyzeCommentsDirectly = analyzeCommentsDirectly;
 window.LLMProcessing.analyzeCommentsWithPythonBackend = analyzeCommentsWithPythonBackend;
-window.LLMProcessing.getStoredApiKey = typeof getStoredApiKey !== 'undefined' ? getStoredApiKey : async () => null;
-window.LLMProcessing.storeApiKey = typeof storeApiKey !== 'undefined' ? storeApiKey : async () => {};
+window.LLMProcessing.getStoredApiKey = getStoredApiKey;
+window.LLMProcessing.storeApiKey = storeApiKey;
 window.LLMProcessing.analyzeCommentsWithBackendOnly = analyzeCommentsWithBackendOnly;

@@ -192,7 +192,7 @@ async function extractComments() {
     }
     
     // Check if we're on a Shopee site
-    const isShopee = tab.url.includes('shopee.');
+    const isShopee = tab.url && tab.url.includes('shopee.');
     if (!isShopee) {
       showStatus('Not on a Shopee page', 'error');
       
@@ -207,30 +207,69 @@ async function extractComments() {
     }
     
     showStatus('Extracting comments...', 'success');
+    console.log('Sending extractComments message to tab', tab.id);
     
-    // Execute script to get comments from the content script
-    chrome.tabs.sendMessage(
-      tab.id, 
-      { action: "extractComments" }, 
-      (response) => {
-        if (chrome.runtime.lastError) {
-          showStatus('Error communicating with page', 'error');
-          console.error(chrome.runtime.lastError);
-          return;
+    try {
+      // Check if content script is ready/loaded
+      chrome.tabs.sendMessage(
+        tab.id, 
+        { action: "extractComments" }, 
+        (response) => {
+          if (chrome.runtime.lastError) {
+            const errorMsg = chrome.runtime.lastError.message || 'Unknown error';
+            console.error('Error communicating with content script:', chrome.runtime.lastError);
+            
+            // Handle common error cases
+            if (errorMsg.includes('Could not establish connection')) {
+              showStatus('Content script not ready. Refresh the page and try again.', 'error');
+              
+              // Show instructions to the user
+              commentsList.innerHTML = '';
+              const helpContainer = document.createElement('div');
+              helpContainer.className = 'comment-item';
+              helpContainer.innerHTML = `
+                <div class="comment-text">
+                  <p><strong>Cannot connect to the page.</strong></p>
+                  <p>Please try the following:</p>
+                  <ol>
+                    <li>Refresh the Shopee product page</li>
+                    <li>Make sure you're on a product detail page with reviews</li>
+                    <li>Open and close this popup</li>
+                  </ol>
+                </div>
+              `;
+              commentsList.appendChild(helpContainer);
+              commentsContainer.classList.remove('hidden');
+            } else {
+              showStatus('Error communicating with page: ' + errorMsg, 'error');
+            }
+            return;
+          }
+          
+          if (response && response.error) {
+            console.error('Content script reported error:', response.message);
+            showStatus('Extraction error: ' + response.message, 'error');
+            return;
+          }
+          
+          if (response && response.comments && response.comments.length > 0) {
+            console.log(`Received ${response.comments.length} comments from content script`);
+            // Always reset stored comments when doing a single page extraction
+            storedComments = [];
+            displayComments(response.comments, false);
+          } else {
+            console.warn('No comments returned from content script:', response);
+            showStatus('No comments found. Are you on a product page with reviews?', 'error');
+          }
         }
-        
-        if (response && response.comments) {
-          // Always reset stored comments when doing a single page extraction
-          storedComments = [];
-          displayComments(response.comments, false);
-        } else {
-          showStatus('No comments found or extraction failed', 'error');
-        }
-      }
-    );
+      );
+    } catch (innerError) {
+      console.error('Error sending message to tab:', innerError);
+      showStatus('Failed to communicate with page: ' + innerError.message, 'error');
+    }
   } catch (error) {
     console.error('Failed to extract comments:', error);
-    showStatus('Failed to extract comments', 'error');
+    showStatus('Failed to extract comments: ' + error.message, 'error');
   }
 }
 
@@ -620,6 +659,7 @@ function updateCommentsWithAnalysis(results, offset = 0) {
 
 // Event listeners
 document.addEventListener('DOMContentLoaded', () => {
+  console.log('Popup DOM fully loaded');
   const saveButton = document.getElementById('save-btn');
   const clearButton = document.getElementById('clear-btn');
   const extractAllButton = document.getElementById('extract-all-btn');
@@ -632,12 +672,34 @@ document.addEventListener('DOMContentLoaded', () => {
   if (downloadCsvButton) downloadCsvButton.addEventListener('click', () => downloadCommentsCSV());
   if (uploadSqlButton) uploadSqlButton.addEventListener('click', uploadCommentsToSql);
 
-  loadApiKey();
-  ensureAutoFeaturesEnabled();
-  chrome.runtime.onMessage.addEventListener && chrome.runtime.onMessage.addEventListener((message) => {
-    if (message.action === "urlChanged") {
-      clearComments();
-      showStatus('Page changed, comments cleared', 'success');
-    }
-  });
+  // Initialize the popup
+  initializePopup();
+  
+  // Listen for URL changes
+  if (chrome.runtime.onMessage && chrome.runtime.onMessage.addListener) {
+    chrome.runtime.onMessage.addListener((message) => {
+      console.log("Message received in popup:", message);
+      if (message.action === "urlChanged") {
+        console.log("URL changed event received in popup");
+        clearComments();
+        showStatus('Page changed, comments cleared', 'success');
+      }
+    });
+  }
 });
+
+// Initialize popup with API key and auto settings
+function initializePopup() {
+  try {
+    console.log("Initializing popup");
+    // Load API key from storage
+    loadApiKey();
+    
+    // Ensure auto features are enabled
+    ensureAutoFeaturesEnabled();
+    
+  } catch (error) {
+    console.error("Error initializing popup:", error);
+    showStatus('Error initializing popup: ' + error.message, 'error');
+  }
+}

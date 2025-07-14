@@ -38,7 +38,7 @@ BURST_COUNT_THRESHOLD = 5
 
 DB_CONFIG = {
     "dbname": os.getenv("DBNAME"),
-    "user": os.getenv("USER"),
+    "user": os.getenv("DB_USER"),  # Changed from USER to DB_USER to avoid system env variable conflict
     "password": os.getenv("PASSWORD"),
     "host": os.getenv("HOST"),
     "port": int(os.getenv("PORT", 5432))
@@ -262,12 +262,41 @@ async def analyze_comments_batch_ollama(comments: List[str], prompt: str = None,
             masked_key = gemini_api_key[:4] + "****" + gemini_api_key[-4:] if len(gemini_api_key) > 8 else "****"
             logger.info(f"Using Gemini API Key (masked: {masked_key})")
             try:
+                import pkg_resources
                 from google import genai
-                genai.configure(api_key=gemini_api_key)
-                model_gemini = genai.GenerativeModel("gemini-2.0-flash")
-                logger.info("Using Gemini for analysis")
-                response_gemini = model_gemini.generate_content(base_prompt)
-                result_text = response_gemini.text.strip()
+                
+                # Log Google API version for debugging
+                try:
+                    genai_version = pkg_resources.get_distribution("google-generativeai").version
+                    logger.info(f"Google Generative AI version: {genai_version}")
+                except Exception as version_error:
+                    logger.warning(f"Could not determine Google Generative AI version: {str(version_error)}")
+                
+                # Use only the client-based approach with proper error handling
+                client = genai.Client(api_key=gemini_api_key)
+                logger.info("Using Gemini Client API for analysis")
+                
+                # Try different model names in case one is not available
+                models_to_try = ["gemini-pro", "gemini-1.5-pro", "gemini-1.0-pro"]
+                last_error = None
+                
+                for model_name in models_to_try:
+                    try:
+                        logger.info(f"Trying model: {model_name}")
+                        response_gemini = client.generate_content(
+                            model=model_name,
+                            contents=base_prompt
+                        )
+                        result_text = response_gemini.text.strip()
+                        logger.info(f"Successfully used model: {model_name}")
+                        break
+                    except Exception as model_error:
+                        last_error = model_error
+                        logger.warning(f"Failed with model {model_name}: {str(model_error)}")
+                        continue
+                else:
+                    # This runs if the for loop completes without a break (all models failed)
+                    raise Exception(f"All Gemini models failed. Last error: {str(last_error)}")
                 logger.info("Gemini analysis completed successfully")
             except Exception as e:
                 logger.error(f"Error using Gemini API: {str(e)}")

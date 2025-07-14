@@ -8,6 +8,45 @@ let apiCallTimer = null;
 let lastOverlayRunTimestamp = 0;
 const OVERLAY_RUN_THROTTLE_MS = 1000;
 
+// Flag to track if content script is fully initialized
+let isContentScriptInitialized = false;
+window.extractedCommentsCache = [];
+
+// Initialize content script dependencies and required objects
+function initializeContentScript() {
+  try {
+    console.log("Initializing content script...");
+    
+    // Check if required helper objects are available
+    if (typeof window.ShopeeHelpers === 'undefined') {
+      console.error("ShopeeHelpers not defined. contentHelpers.js might not be loaded correctly.");
+    } else {
+      console.log("ShopeeHelpers loaded successfully");
+    }
+    
+    if (typeof window.CommentExtractor === 'undefined') {
+      console.error("CommentExtractor not defined. commentExtractor.js might not be loaded correctly.");
+    } else {
+      console.log("CommentExtractor loaded successfully");
+    }
+    
+    if (typeof window.LLMProcessing === 'undefined') {
+      console.error("LLMProcessing not defined. LLMProcessing.js might not be loaded correctly.");
+    } else {
+      console.log("LLMProcessing loaded successfully");
+    }
+    
+    isContentScriptInitialized = true;
+    console.log("Content script initialization complete");
+  } catch (error) {
+    console.error("Error initializing content script:", error);
+    isContentScriptInitialized = false;
+  }
+}
+
+// Run initialization when script loads
+initializeContentScript();
+
 async function callTestEndpoint(comments) {
   try {
     console.log("Sending comments to background script...");
@@ -201,7 +240,15 @@ function showCommentsOverlay(comments) {
   }
   
   // Always use backend for analysis
-  window.LLMProcessing.analyzeCommentsWithBackendOnly(comments, productName).then(result => {
+  console.log("Starting comment analysis with backend");
+  
+  // Get the API key directly here to ensure it's used
+  window.LLMProcessing.getStoredApiKey().then(apiKey => {
+    console.log("API key for analysis:", apiKey ? "Available (masked)" : "Not available");
+    
+    // Use the backend with the API key
+    return window.LLMProcessing.analyzeCommentsWithBackendOnly(comments, productName);
+  }).then(result => {
     // Remove loading overlay when done
     logDiv.remove();
     isApiCallInProgress = false;
@@ -417,26 +464,46 @@ loadAutoExtractSetting();
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.action === "extractComments") {
     try {
-      // Use CommentExtractor if available, otherwise fallback to basic extraction
-      if (window.CommentExtractor) {
-        // Handle async extraction
-        window.CommentExtractor.extractAllComments(false).then(extractedComments => {
-          sendResponse({ comments: extractedComments });
-        }).catch(error => {
-          console.error("Error extracting comments:", error);
-          sendResponse({ error: true, message: error.message });
-        });
-      } else if (window.ShopeeHelpers) {
-        // Fallback to synchronous method
-        const extractedComments = window.ShopeeHelpers.extractDetailedCommentData();
-        sendResponse({ comments: extractedComments });
-      } else {
+      console.log("Received extractComments request in content script");
+      // Check if extraction tools are available
+      if (!window.CommentExtractor && !window.ShopeeHelpers) {
         console.error("Comment extraction tools not available");
         sendResponse({ error: true, message: "Comment extraction tools not available" });
+        return true;
+      }
+
+      // Use CommentExtractor if available, otherwise fallback to basic extraction
+      if (window.CommentExtractor) {
+        console.log("Using CommentExtractor for extraction");
+        // Handle async extraction
+        window.CommentExtractor.extractAllComments(false)
+          .then(extractedComments => {
+            console.log(`Extracted ${extractedComments.length} comments`);
+            // Store in global cache for future use
+            window.extractedCommentsCache = extractedComments;
+            sendResponse({ comments: extractedComments });
+          })
+          .catch(error => {
+            console.error("Error extracting comments:", error);
+            sendResponse({ error: true, message: error.toString() });
+          });
+      } else if (window.ShopeeHelpers) {
+        console.log("Using ShopeeHelpers for extraction");
+        try {
+          // Fallback to synchronous method
+          const extractedComments = window.ShopeeHelpers.extractDetailedCommentData();
+          console.log(`Extracted ${extractedComments.length} comments with ShopeeHelpers`);
+          // Store in global cache for future use
+          window.extractedCommentsCache = extractedComments;
+          sendResponse({ comments: extractedComments });
+        } catch (innerError) {
+          console.error("Error in ShopeeHelpers extraction:", innerError);
+          sendResponse({ error: true, message: innerError.toString() });
+        }
       }
     } catch (error) {
-      console.error("Error extracting comments:", error);
-      sendResponse({ error: true, message: error.message });
+      console.error("Error in extractComments handler:", error);
+      sendResponse({ error: true, message: error.toString() });
     }
     return true; // Keep the message channel open for async response
   } else if (request.action === "autoExtractComments") {
@@ -456,21 +523,41 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       }
     }, 100);
   } else if (request.action === "getProcessedComments") {
-    // Check if we have already processed comments on this page or have cached comments
-    const currentComments = ShopeeHelpers.extractShopeeCommentTexts();
-    const currentCommentsHash = currentComments.join('|');
-    const hasProcessedComments = analyzedComments.has(currentCommentsHash) && analyzedComments.size > 0;
-    
-    // Check if we have cached comments from auto-extraction without API key
-    if (window.extractedCommentsCache && window.extractedCommentsCache.length > 0) {
-      console.log("Found cached comments, returning to popup");
-      sendResponse({ 
-        hasProcessedComments: true, 
-        cachedComments: window.extractedCommentsCache 
-      });
-    } else {
-      sendResponse({ hasProcessedComments: hasProcessedComments });
+    try {
+      console.log("getProcessedComments request received");
+      // Verify ShopeeHelpers is available
+      if (!window.ShopeeHelpers) {
+        console.warn("ShopeeHelpers not available for getProcessedComments");
+        sendResponse({ 
+          error: true, 
+          message: "Content script helpers not fully loaded"
+        });
+        return true;
+      }
+      
+      // Check if we have already processed comments on this page or have cached comments
+      const currentComments = ShopeeHelpers.extractShopeeCommentTexts();
+      console.log(`Found ${currentComments.length} comments on current page`);
+      
+      const currentCommentsHash = currentComments.join('|');
+      const hasProcessedComments = analyzedComments.has(currentCommentsHash) && analyzedComments.size > 0;
+      
+      // Check if we have cached comments from auto-extraction without API key
+      if (window.extractedCommentsCache && window.extractedCommentsCache.length > 0) {
+        console.log(`Found ${window.extractedCommentsCache.length} cached comments, returning to popup`);
+        sendResponse({ 
+          hasProcessedComments: true, 
+          cachedComments: window.extractedCommentsCache 
+        });
+      } else {
+        console.log(`No cached comments found. Has processed: ${hasProcessedComments}`);
+        sendResponse({ hasProcessedComments: hasProcessedComments });
+      }
+    } catch (error) {
+      console.error("Error in getProcessedComments handler:", error);
+      sendResponse({ error: true, message: error.toString() });
     }
+    return true;
   } else if (request.action === "updateAutoExtractSetting") {
     // Update auto-extract setting
     isAutoExtractEnabled = request.isEnabled;
