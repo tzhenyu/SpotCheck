@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 import logging
 from fastapi.responses import JSONResponse
@@ -15,6 +15,7 @@ from typing import List
 import json
 import requests
 import os
+import asyncio
 from tqdm import tqdm
 # from adam import agent_executor
 
@@ -102,6 +103,15 @@ async def process_comments(data: CommentData):
     """Store comments from Shopee in PostgreSQL database"""
     logger.info(f"Received {len(data.comments)} comments")
     
+    # Extract Gemini API key from request
+    gemini_api_key = data.gemini_api_key
+    # Log receipt without exposing the actual key
+    if gemini_api_key:
+        masked_key = gemini_api_key[:4] + "****" + gemini_api_key[-4:] if len(gemini_api_key) > 8 else "****"
+        logger.info(f"Gemini API key received: Yes (masked: {masked_key})")
+    else:
+        logger.warning("No Gemini API key provided in request")
+    
     # Only store metadata if provided, without Gemini processing
     if data.metadata and len(data.metadata) > 0:
         logger.info(f"Storing {len(data.metadata)} comments in database")
@@ -154,9 +164,21 @@ async def process_comments(data: CommentData):
                 logger.info("clean_postgresql_data called after storing data")
             except Exception as e:
                 logger.error(f"Error calling clean_postgresql_data: {str(e)}")
+                
+            # If gemini_api_key is provided, analyze comments in background
+            if gemini_api_key:
+                logger.info("Gemini API key provided, scheduling background analysis")
+                # Create a background task for analysis (you can use FastAPI background tasks here)
+                asyncio.create_task(analyze_comments_batch_ollama(
+                    comments=data.comments, 
+                    product=data.product, 
+                    gemini_api_key=gemini_api_key
+                ))
+                
             return {
                 "message": f"Successfully stored {len(insert_values)} comments in database", 
-                "total_stored": len(insert_values)
+                "total_stored": len(insert_values),
+                "analysis_scheduled": bool(gemini_api_key)
             }
         except Exception as e:
             logger.error(f"Database error storing comments: {str(e)}")
@@ -173,12 +195,22 @@ async def process_comments(data: CommentData):
 
 @app.post("/analyze")
 async def analyze_comments(data: CommentData):
-    logger.info(f"Received {len(data.comments)} comments")
-    logger.info(f"Request payload: {data.dict()}")
+    logger.info(f"Received {len(data.comments)} comments for analysis")
+    
+    # Extract request parameters but don't log sensitive data
     comments_to_process = data.comments[:6]
     prompt = data.prompt
     product = data.product
     gemini_api_key = data.gemini_api_key
+    
+    # Mask API key in logs
+    if gemini_api_key:
+        masked_key = gemini_api_key[:4] + "****" + gemini_api_key[-4:] if len(gemini_api_key) > 8 else "****"
+        logger.info(f"Gemini API key for analysis: Yes (masked: {masked_key})")
+    else:
+        logger.info("No Gemini API key provided for analysis")
+        
+    # Extract usernames if available
     usernames = [item.get("username") if isinstance(item, dict) else None for item in getattr(data, "metadata", [])[:6]] if data.metadata else [None]*len(comments_to_process)
     logger.info(f"Batch analyzing {len(comments_to_process)} comments")
     results = await analyze_comments_batch_ollama(comments_to_process, prompt=prompt, product=product, gemini_api_key=gemini_api_key)
@@ -226,13 +258,34 @@ async def analyze_comments_batch_ollama(comments: List[str], prompt: str = None,
         for i, comment in enumerate(comments, 1):
             base_prompt += f"{i}. Review: '{comment}'\n"
         if gemini_api_key:
-            print(f"Gemini API Key: {gemini_api_key}")
-            from google import genai
-            genai.configure(api_key=gemini_api_key)
-            model_gemini = genai.GenerativeModel("gemini-2.0-flash")
-            print("using gemini")
-            response_gemini = model_gemini.generate_content(base_prompt)
-            result_text = response_gemini.text.strip()
+            # Don't log full API key
+            masked_key = gemini_api_key[:4] + "****" + gemini_api_key[-4:] if len(gemini_api_key) > 8 else "****"
+            logger.info(f"Using Gemini API Key (masked: {masked_key})")
+            try:
+                from google import genai
+                genai.configure(api_key=gemini_api_key)
+                model_gemini = genai.GenerativeModel("gemini-2.0-flash")
+                logger.info("Using Gemini for analysis")
+                response_gemini = model_gemini.generate_content(base_prompt)
+                result_text = response_gemini.text.strip()
+                logger.info("Gemini analysis completed successfully")
+            except Exception as e:
+                logger.error(f"Error using Gemini API: {str(e)}")
+                # Fall back to Ollama if Gemini fails
+                logger.info("Falling back to Ollama due to Gemini error")
+                response = requests.post(
+                    "http://localhost:11434/api/generate",
+                    json={
+                        "model": llm_model,
+                        "prompt": base_prompt,
+                        "system": system_prompt,
+                        "stream": False
+                    },
+                    timeout=60
+                )
+                response.raise_for_status()
+                result_json = response.json()
+                result_text = result_json.get("response", "").strip()
         else:
             response = requests.post(
                 "http://localhost:11434/api/generate",

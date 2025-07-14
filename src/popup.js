@@ -511,20 +511,35 @@ async function uploadCommentsToSql() {
       product: productName,
       gemini_api_key: geminiApiKey
     };
-    console.log('Payload to backend:', payload);
+    console.log('Payload to backend:', {
+      ...payload,
+      gemini_api_key: geminiApiKey ? '***API_KEY_HIDDEN***' : null // Hide API key in logs for security
+    });
     try {
       const response = await fetch(`${BACKEND_API_URL}/comments`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
       });
+      
       if (response.ok) {
-        showStatus('Comments uploaded successfully!', 'success');
+        const responseData = await response.json();
+        console.log('Backend response:', responseData);
+        
+        // Check if analysis was scheduled
+        if (responseData.analysis_scheduled) {
+          showStatus('Comments uploaded and analysis scheduled!', 'success');
+        } else {
+          showStatus('Comments uploaded successfully!', 'success');
+        }
       } else {
-        showStatus('Failed to upload comments', 'error');
+        const errorText = await response.text();
+        console.error('Backend error:', errorText);
+        showStatus(`Upload failed: ${response.status} ${response.statusText}`, 'error');
       }
     } catch (error) {
-      showStatus('Failed to upload comments', 'error');
+      console.error('Network error during upload:', error);
+      showStatus(`Upload failed: ${error.message}`, 'error');
     }
   } catch (error) {
     showStatus('Failed to upload comments', 'error');
