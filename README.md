@@ -86,6 +86,25 @@ Three-stage LLM pipeline:
 ### Use Cloud infra
 #### Requirements
 - Python 3.12.3 - backend server
+- Chromium-based browser - for extension
+
+#### Deployment
+1. Install python library
+```bash
+pip install -r requirements.txt
+```
+2. Run backend server
+```bash
+python ./backend/backend.py
+```
+3. Install browser extension
+- Open chromium-based browser
+- Go to extension settings
+- Enable developer mode
+- Click "load unpacked"
+- Select ```src``` folder from this repo
+4. Access Shopee product page to try!
+
 - Chromium browser - for extension
 
 ### Deploy Locally
@@ -97,7 +116,18 @@ Three-stage LLM pipeline:
 - Chromium browser - for extension
 > Full setup guide (extension, API endpoints, environment setup, model config) will be released in the next development phase.
 
----
+## Performance
+| Run        | `analyze_comments` (Local LLM) | `analyze_comments` (Gemini LLM) |
+| ---------- | ------------------------------ | ------------------------------- |
+| 1          | 4.08                           | 14.57                           |
+| 2          | 4.84                           | 24.44                           |
+| 3          | 4.55                           | 25.17                           |
+| 4          | 11.09                          | 16.54                           |
+| 5          | 11.15                          | 11.18                           |
+| **Avg** | **7.14s**                      | **18.38s**                      |
+
+Local LLM is **~61.14%** faster than Gemini LLM on average.
+
 ## 🙌 Credits
 Brought to you by team **TARUMT NOT TARC**
 - TAN ZHEN YU

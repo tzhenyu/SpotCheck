@@ -1,5 +1,9 @@
-fastapi>=0.104.0
-uvicorn>=0.23.2
-google-genai
-python-dotenv
-psycopg2-binary
+fastapi==0.115.14
+uvicorn==0.35.0
+pydantic==2.11.7
+python-dotenv==1.1.1
+psycopg2-binary==2.9.10
+requests==2.32.4
+sentence-transformers==5.0.0
+tqdm==4.67.1
+typing_extensions==4.14.1

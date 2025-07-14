@@ -42,11 +42,34 @@ function createAnalysisDiv(result) {
   analysisDiv.style.marginTop = '4px';
   analysisDiv.style.padding = '4px';
   analysisDiv.style.borderRadius = '4px';
-  analysisDiv.style.backgroundColor = result.is_fake ? COLORS.FAKE_BG : COLORS.REAL_BG;
-  analysisDiv.style.border = `1px solid ${result.is_fake ? COLORS.FAKE : COLORS.REAL}`;
+  let verdict = 'REAL';
+  let color = COLORS.REAL;
+  let bgColor = COLORS.REAL_BG;
+  let explanation = result.explanation;
+  if (typeof explanation === 'string') {
+    const match = explanation.match(/^(Genuine|Suspicious|Not Relevant|Fake|REAL|FAKE)\b\s*[:-]?\s*/i);
+    if (match) {
+      verdict = match[1].toUpperCase();
+      explanation = explanation.slice(match[0].length).trim();
+      if (verdict === 'FAKE') {
+        color = COLORS.FAKE;
+        bgColor = COLORS.FAKE_BG;
+      } else if (verdict === 'SUSPICIOUS') {
+        color = '#ffa500';
+        bgColor = 'rgba(255,165,0,0.1)';
+      } else if (verdict === 'NOT RELEVANT') {
+        color = '#888';
+        bgColor = 'rgba(128,128,128,0.1)';
+      } else {
+        color = COLORS.REAL;
+        bgColor = COLORS.REAL_BG;
+      }
+    }
+  }
+  analysisDiv.style.backgroundColor = bgColor;
+  analysisDiv.style.border = `1px solid ${color}`;
   analysisDiv.style.fontSize = '12px';
-  
-  analysisDiv.innerHTML = `<span style="font-weight:bold;color:${result.is_fake ? COLORS.FAKE : COLORS.REAL}">${result.is_fake ? 'FAKE' : 'REAL'}</span>: ${result.explanation}`;
+  analysisDiv.innerHTML = `<span style="font-weight:bold;color:${color}">${verdict}</span>: ${explanation}`;
   
   return analysisDiv;
 }

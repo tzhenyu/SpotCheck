@@ -7,7 +7,7 @@
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css">
 
   <div style="display: flex; align-items: center; justify-content: space-between; width: 100%; margin-bottom: 10px;">
-    <h1 style="margin: 0; display: flex; align-items: center;">Shopee Comment Extractor</h1>
+    <h1 style="margin: 0; display: flex; align-items: center;">SpotCheck: Shopee Fraud Detector</h1>
     <a href="https://github.com/tzhenyu/FutureHack-2025" target="_blank" style="text-decoration: none; color: inherit;">
       <i class="fa fa-github" style="font-size:24px;"></i>
     </a>
@@ -27,10 +27,6 @@
       color: #333;
     }
 
-    .input-group {
-      margin-bottom: 16px;
-    }
-
     label {
       display: block;
       margin-bottom: 6px;
@@ -47,51 +43,9 @@
       font-size: 14px;
     }
 
-    .buttons {
-      display: flex;
-      justify-content: space-between;
-    }
-
-    button {
-      padding: 8px 16px;
-      background: #4285f4;
-      color: white;
-      border: none;
-      border-radius: 4px;
-      cursor: pointer;
-      font-size: 14px;
-      flex-grow: 1;
-      margin-right: 8px;
-    }
-
-    button:last-child {
-      margin-right: 0;
-    }
-
-    button.secondary {
-      background: #f1f1f1;
-      color: #333;
-    }
-
-    button:hover {
-      opacity: 0.9;
-    }
-
-    .status {
-      margin-top: 16px;
-      padding: 8px;
-      border-radius: 4px;
-      font-size: 14px;
-    }
-
-    .status.success {
-      background: rgba(76, 175, 80, 0.1);
-      color: #4caf50;
-    }
-
-    .status.error {
-      background: rgba(244, 67, 54, 0.1);
-      color: #f44336;
+    #gemini-api-key.stored {
+      border: 2px solid #28a745;
+      background: #eaffea;
     }
 
     .hidden {
@@ -157,11 +111,6 @@
       margin-bottom: 10px;
     }
 
-    #download-csv-btn {
-      font-size: 12px;
-      padding: 4px 8px;
-    }
-
     .setting-group {
       margin: 16px 0;
     }
@@ -221,56 +170,75 @@
     #upload-sql-btn:hover {
       background-color: #218838;
     }
+
+    .status {
+      font-size: 14px;
+      margin-top: 10px;
+      padding: 10px;
+      border-radius: 4px;
+    }
+
+    .status.hidden {
+      display: none;
+    }
+
+    .status.success {
+      color: #155724;
+      background-color: #d4edda;
+      border-color: #c3e6cb;
+    }
+
+    .status.error {
+      color: #721c24;
+      background-color: #f8d7da;
+      border-color: #f5c6cb;
+    }
+
+    #save-btn,
+    #clear-btn {
+      font-size: 13px;
+      padding: 6px 14px;
+      border: none;
+      border-radius: 4px;
+      background-color: #4285f4;
+      color: #fff;
+      cursor: pointer;
+      margin-right: 6px;
+      transition: background 0.2s;
+    }
+
+    #save-btn:hover {
+      background-color: #357ae8;
+    }
+
+    #clear-btn {
+      background-color: #f44336;
+    }
+
+    #clear-btn:hover {
+      background-color: #d32f2f;
+    }
   </style>
 </head>
 
 <body>
 
-  <div class="input-group">
-    <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 5px;">
-      <label for="api-key" style="margin: 0; font-size: 16px;">Gemini API Key</label>
-      <a href="https://makersuite.google.com/app/apikey " target="_blank" rel="noopener noreferrer"
-        style="font-size: 16px; color: #007BFF; text-decoration: none; align-self: flex-end;">
-        Get it here
-      </a>
-    </div>
-    <input type="text" id="api-key" placeholder="Enter your Gemini API key">
+
+
+  <div class="description">
+    <p>This purpose of this browser extension is to scrape the comments from Shopee, pass the comments to backend server, and parse the result back here.</p>
+
   </div>
 
-  <div class="buttons">
-    <button id="save-btn">Save API Key</button>
-    <button id="clear-btn" class="secondary">Clear</button>
+  <div class="setting-group">
+    <label for="gemini-api-key">Gemini API Key</label>
+    <input type="text" id="gemini-api-key" name="geminiApiKey" placeholder="Enter your Gemini API key" autocomplete="off">
+    <button id="save-btn" type="button" style="margin-top:6px;margin-right:6px;">Save Key</button>
+    <button id="clear-btn" type="button" style="margin-top:6px;">Clear Key</button>
   </div>
 
   <div id="status-message" class="status hidden"></div>
-
-  <!-- <div class="buttons extraction-buttons">
-    <button id="extract-all-btn">Extract All Pages (30)</button>
-  </div>
-   -->
-  <div id="extraction-progress" class="hidden">
-    <div class="progress-bar-container">
-      <div class="progress-bar" id="progress-bar"></div>
-    </div>
-    <div id="progress-text">Extracting comments...</div>
-  </div>
-
-  <!--   
-  <div id="comments-container" class="hidden">
-    <div class="comments-header">
-      <h2>Extracted Comments (<span id="comment-count">0</span>)</h2>
-      <div class="comment-actions">
-        <button id="upload-sql-btn" class="secondary">Upload to SQL Server</button>
-        <button id="download-csv-btn" class="secondary">Download CSV</button>
-      </div>
-    </div>
-    <div id="comments-list">
-    </div>
-  </div>
-   -->
-  <div class="description">
-    <h4>FutureHack! 2025 - TARUMT NOT TARC team</h4>
-  </div>
+  <h4>Proudly brought to you by: TARUMT NOT TARC team</h4>
 
   <script src="popup.js"></script>
 </body>
