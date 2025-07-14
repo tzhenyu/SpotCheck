@@ -105,6 +105,7 @@ python ./backend/backend.py
 - Select ```src``` folder from this repo
 4. Access Shopee product page to try!
 
+- Chromium browser - for extension
 
 ### Deploy Locally
 #### Requirements
