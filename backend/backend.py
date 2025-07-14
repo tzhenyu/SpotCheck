@@ -15,10 +15,7 @@ from typing import List
 import json
 import requests
 import os
-from cleanDatabase import clean_postgresql_data
-import threading
-import time
-
+from tqdm import tqdm
 # from adam import agent_executor
 
 model = SentenceTransformer("all-MiniLM-L6-v2")
@@ -47,7 +44,6 @@ DB_CONFIG = {
 }
 table_name = os.getenv("TABLE_NAME")
 llm_model = os.getenv("LLM_MODEL")
-
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -152,7 +148,11 @@ async def process_comments(data: CommentData):
             cursor.close()
             conn.close()
             logger.info(f"Successfully stored {len(insert_values)} comments in database")
-            
+            try:
+                clean_postgresql_data(table_name)
+                logger.info("clean_postgresql_data called after storing data")
+            except Exception as e:
+                logger.error(f"Error calling clean_postgresql_data: {str(e)}")
             return {
                 "message": f"Successfully stored {len(insert_values)} comments in database", 
                 "total_stored": len(insert_values)
@@ -205,7 +205,6 @@ async def analyze_comments(data: CommentData):
 
 
 async def analyze_comments_batch_ollama(comments: List[str], prompt: str = None, product: str = None) -> List[Dict]:
-    """Process multiple comments in a single Ollama API call"""
     try:
         base_prompt = prompt if prompt else ""
         system_prompt = (
@@ -226,7 +225,7 @@ async def analyze_comments_batch_ollama(comments: List[str], prompt: str = None,
         response = requests.post(
             "http://localhost:11434/api/generate",
             json={
-                "model":  model,
+                "model": llm_model,
                 "prompt": base_prompt,
                 "system": system_prompt,
                 "stream": False
@@ -274,10 +273,11 @@ async def analyze_comments_batch_ollama(comments: List[str], prompt: str = None,
 def get_db_connection():
     """Establish a connection to the PostgreSQL database"""
     try:
+        logger.info(f"Attempting DB connection with config: {DB_CONFIG}")
         conn = psycopg2.connect(**DB_CONFIG)
         return conn
     except Exception as e:
-        logger.error(f"Database connection error: {str(e)}")
+        logger.error(f"Database connection error: {str(e)} | Config: {DB_CONFIG}")
         raise
 
 def clean_timestamp(timestamp_str):
@@ -368,6 +368,82 @@ def suspicious_comment_semantic_search(comment: str) -> List[float]:
     except Exception as error:
         logger.error(f"Error analyzing suspicious comment: {error}, comment: {comment}")
         return []
+
+#################### clear postgresql
+
+def clean_postgresql_data(table_name):
+    # Connect to Supabase PostgreSQL
+    conn = psycopg2.connect(**DB_CONFIG)
+
+    cur = conn.cursor()
+
+    # Remove records with empty comment
+    print("Removing records with empty comment...")
+    cur.execute(f"DELETE FROM {table_name} WHERE comment IS NULL OR TRIM(comment) = '';")
+    conn.commit()
+
+    # Remove emojis and \n from text in PostgreSQL
+    print("Removing emojis and \\n from text...")
+    cur.execute(f"""
+        UPDATE {table_name}
+        SET comment = REGEXP_REPLACE(
+            REGEXP_REPLACE(
+                comment,
+                '[\\n\\r]',  -- Remove newlines
+                '',
+                'g'
+            ),
+            '[^\\u0000-\\u007F\\u4E00-\\u9FFF\\u3400-\\u4DBF\\u2000-\\u206F\\u3000-\\u303F\\uFF00-\\uFFEF]',  -- Remove emojis, preserve Chinese
+            '',
+            'g'
+        )
+        WHERE comment ~ '[\\n\\r]' OR comment ~ '[^\\u0000-\\u007F\\u4E00-\\u9FFF\\u3400-\\u4DBF\\u2000-\\u206F\\u3000-\\u303F\\uFF00-\\uFFEF]';
+    """)
+    conn.commit()
+
+    # Remove duplicated comments
+    print("Removing duplicated comments...")
+    cur.execute(f"""
+        WITH ranked_comments AS (
+            SELECT 
+                id,  -- assuming there's a primary key
+                comment,
+                ROW_NUMBER() OVER (PARTITION BY comment ORDER BY id) AS rn
+            FROM {table_name}
+        )
+        DELETE FROM {table_name}
+        WHERE id IN (
+            SELECT id
+            FROM ranked_comments
+            WHERE rn > 1
+        );
+    """)
+    conn.commit()
+
+    # Fetch rows that don't have embeddings yet
+    print("Fetching records with no embedding...")
+    cur.execute(f"SELECT id, comment FROM {table_name} WHERE embedding IS NULL;")
+    rows = cur.fetchall()
+
+    # Generate and update embeddings
+    print("Embedding records with no embedding...")
+    for row_id, text in tqdm(rows):
+        try:
+            embedding = model.encode(text).tolist()
+        except Exception as e:
+            print(f"Error embedding row {row_id}: {e}")
+            embedding = None
+        cur.execute(
+            f"UPDATE {table_name} SET embedding = %s WHERE id = %s;",
+            (embedding, row_id)
+        )
+
+    conn.commit()
+    cur.close()
+    conn.close()
+
+    print("Done!")
+
 
 #################### BEHAVIORAL SEARCH
 
@@ -517,15 +593,7 @@ def determine_review_genuinty(suspicious_comments: List[Dict]) -> List[Dict]:
             for item in suspicious_comments
         ]
 
-def schedule_clean_postgresql_data():
-    def run_periodically():
-        while True:
-            clean_postgresql_data()
-            time.sleep(3600)
-    thread = threading.Thread(target=run_periodically, daemon=True)
-    thread.start()
 
-schedule_clean_postgresql_data()
 
 if __name__ == "__main__":
     import uvicorn
