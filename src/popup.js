@@ -24,7 +24,7 @@ let storedComments = [];
 
 // Global error handler for logging
 window.onerror = function(message, source, lineno, colno, error) {
-  alert('JS Error: ' + message + ' at ' + source + ':' + lineno);
+  showPopupMessage('JS Error: ' + message + ' at ' + source + ':' + lineno, 'error');
   return false;
 };
 console.log('popup.js loaded at', new Date().toISOString());
@@ -35,7 +35,7 @@ async function loadApiKey() {
     const result = await new Promise(resolve => {
       chrome.storage.local.get([API_KEY_STORAGE_KEY], resolve);
     });
-    alert('Loaded API key from storage: ' + result[API_KEY_STORAGE_KEY]);
+    showPopupMessage('Loaded API key from storage: ' + result[API_KEY_STORAGE_KEY], 'success');
     console.log('Loaded API key from storage:', result[API_KEY_STORAGE_KEY]);
     if (result[API_KEY_STORAGE_KEY]) {
       apiKeyInput.value = result[API_KEY_STORAGE_KEY];
@@ -83,7 +83,7 @@ async function loadApiKey() {
       }
     });
   } catch (error) {
-    alert('Failed to load API key: ' + error);
+    showPopupMessage('Failed to load API key: ' + error, 'error');
     console.error('Failed to load API key:', error);
     showStatus('Failed to load API key', 'error');
     apiKeyInput.classList.remove('stored');
@@ -126,7 +126,7 @@ function clearComments() {
 function saveApiKey() {
   const apiKey = apiKeyInput.value.trim();
   try {
-    alert('Saving API key: ' + apiKey);
+    showPopupMessage('Saving API key: ' + apiKey, 'info');
     console.log('Saving API key:', apiKey);
     if (!apiKey) {
       showStatus('Please enter an API key', 'error');
@@ -142,7 +142,7 @@ function saveApiKey() {
       apiKeyInput.setAttribute('title', apiKey);
     });
   } catch (error) {
-    alert('Failed to save API key: ' + error);
+    showPopupMessage('Failed to save API key: ' + error, 'error');
     console.error('Failed to save API key:', error);
     showStatus('Failed to save API key', 'error');
     apiKeyInput.classList.remove('stored');
@@ -175,6 +175,17 @@ function showStatus(message, type) {
   statusMessage.classList.remove('hidden');
   
   // Auto-hide after 3 seconds
+  setTimeout(() => {
+    statusMessage.classList.add('hidden');
+  }, 3000);
+}
+
+// Show popup message immediately
+function showPopupMessage(message, type = 'info') {
+  if (!statusMessage) return;
+  statusMessage.textContent = message;
+  statusMessage.className = `status ${type}`;
+  statusMessage.classList.remove('hidden');
   setTimeout(() => {
     statusMessage.classList.add('hidden');
   }, 3000);
@@ -524,7 +535,7 @@ async function uploadCommentsToSql() {
     const geminiApiKey = await new Promise(resolve => {
       chrome.storage.local.get([API_KEY_STORAGE_KEY], (result) => {
         const key = result[API_KEY_STORAGE_KEY] || apiKeyInput.value.trim();
-        alert('API key used for upload: ' + key);
+        showPopupMessage('API key used for upload: ' + key, 'info');
         console.log('API key used for upload:', key);
         resolve(key);
       });

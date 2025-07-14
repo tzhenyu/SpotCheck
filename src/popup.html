@@ -170,6 +170,54 @@
     #upload-sql-btn:hover {
       background-color: #218838;
     }
+
+    .status {
+      font-size: 14px;
+      margin-top: 10px;
+      padding: 10px;
+      border-radius: 4px;
+    }
+
+    .status.hidden {
+      display: none;
+    }
+
+    .status.success {
+      color: #155724;
+      background-color: #d4edda;
+      border-color: #c3e6cb;
+    }
+
+    .status.error {
+      color: #721c24;
+      background-color: #f8d7da;
+      border-color: #f5c6cb;
+    }
+
+    #save-btn,
+    #clear-btn {
+      font-size: 13px;
+      padding: 6px 14px;
+      border: none;
+      border-radius: 4px;
+      background-color: #4285f4;
+      color: #fff;
+      cursor: pointer;
+      margin-right: 6px;
+      transition: background 0.2s;
+    }
+
+    #save-btn:hover {
+      background-color: #357ae8;
+    }
+
+    #clear-btn {
+      background-color: #f44336;
+    }
+
+    #clear-btn:hover {
+      background-color: #d32f2f;
+    }
   </style>
 </head>
 
@@ -179,7 +227,6 @@
 
   <div class="description">
     <p>This purpose of this browser extension is to scrape the comments from Shopee, pass the comments to backend server, and parse the result back here.</p>
-    <h4>Proudly brought to you by: TARUMT NOT TARC team</h4>
 
   </div>
 
@@ -189,6 +236,9 @@
     <button id="save-btn" type="button" style="margin-top:6px;margin-right:6px;">Save Key</button>
     <button id="clear-btn" type="button" style="margin-top:6px;">Clear Key</button>
   </div>
+
+  <div id="status-message" class="status hidden"></div>
+  <h4>Proudly brought to you by: TARUMT NOT TARC team</h4>
 
   <script src="popup.js"></script>
 </body>

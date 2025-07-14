@@ -17,6 +17,7 @@ import requests
 import os
 import asyncio
 from tqdm import tqdm
+import importlib.metadata
 # from adam import agent_executor
 
 model = SentenceTransformer("all-MiniLM-L6-v2")
@@ -245,9 +246,9 @@ async def analyze_comments_batch_ollama(comments: List[str], prompt: str = None,
         system_prompt = (
             "You are a fake review evaluator for e-commerce.\n\n"
             "Given a product and several Shopee reviews, classify each review as:\n"
-            "- Genuine: Relevant, product-specific, likely from a real user.\n"
-            "- Suspicious: Repetitive, vague, overly positive, or possibly AI-generated.\n"
-            "- Not Relevant: Unrelated to the product.\n\n"
+            "- **Genuine**: Relevant, product-specific, likely from a real user.\n"
+            "- **Suspicious**: Repetitive, vague, overly positive, or possibly AI-generated.\n"
+            "- **Not Relevant**: Unrelated to the product.\n\n"
             "Respond with a numbered list using this format:\n"
             "1. <Verdict> - (Short reason)\n"
             "Keep reasons under 15 words. Don’t repeat review text.\n"
@@ -258,45 +259,25 @@ async def analyze_comments_batch_ollama(comments: List[str], prompt: str = None,
         for i, comment in enumerate(comments, 1):
             base_prompt += f"{i}. Review: '{comment}'\n"
         if gemini_api_key:
-            # Don't log full API key
-            masked_key = gemini_api_key[:4] + "****" + gemini_api_key[-4:] if len(gemini_api_key) > 8 else "****"
-            logger.info(f"Using Gemini API Key (masked: {masked_key})")
+            os.environ["GOOGLE_API_KEY"] = gemini_api_key
             try:
-                import pkg_resources
                 from google import genai
-                
-                # Log Google API version for debugging
                 try:
-                    genai_version = pkg_resources.get_distribution("google-generativeai").version
+                    genai_version = importlib.metadata.version("google-generativeai")
                     logger.info(f"Google Generative AI version: {genai_version}")
                 except Exception as version_error:
                     logger.warning(f"Could not determine Google Generative AI version: {str(version_error)}")
-                
-                # Use only the client-based approach with proper error handling
-                client = genai.Client(api_key=gemini_api_key)
+                client = genai.Client()
                 logger.info("Using Gemini Client API for analysis")
-                
-                # Try different model names in case one is not available
-                models_to_try = ["gemini-pro", "gemini-1.5-pro", "gemini-1.0-pro"]
-                last_error = None
-                
-                for model_name in models_to_try:
-                    try:
-                        logger.info(f"Trying model: {model_name}")
-                        response_gemini = client.generate_content(
-                            model=model_name,
-                            contents=base_prompt
-                        )
-                        result_text = response_gemini.text.strip()
-                        logger.info(f"Successfully used model: {model_name}")
-                        break
-                    except Exception as model_error:
-                        last_error = model_error
-                        logger.warning(f"Failed with model {model_name}: {str(model_error)}")
-                        continue
-                else:
-                    # This runs if the for loop completes without a break (all models failed)
-                    raise Exception(f"All Gemini models failed. Last error: {str(last_error)}")
+                response_gemini = client.models.generate_content(
+                    model="gemini-2.5-flash",
+                    contents=[
+                        {"role": "user", "parts": [{"text": system_prompt}]},
+                        {"role": "user", "parts": [{"text": base_prompt}]}
+                    ]
+                )
+                result_text = response_gemini.text.strip()
+                logger.info("Successfully used model: gemini-2.5-flash")
                 logger.info("Gemini analysis completed successfully")
             except Exception as e:
                 logger.error(f"Error using Gemini API: {str(e)}")
@@ -333,11 +314,17 @@ async def analyze_comments_batch_ollama(comments: List[str], prompt: str = None,
         lines = [line.strip() for line in result_text.split('\n') if line.strip()]
         results = []
         comment_map = {}
-        for line in lines:
-            for i in range(1, len(comments) + 1):
-                if line.startswith(f"{i}."):
-                    comment_map[i-1] = line
+        # Try to match lines to comments by index, fallback to sequential assignment if no prefix match
+        for i in range(len(comments)):
+            # Prefer numbered prefix match
+            matched = False
+            for line in lines:
+                if line.startswith(f"{i+1}."):
+                    comment_map[i] = line
+                    matched = True
                     break
+            if not matched and i < len(lines):
+                comment_map[i] = lines[i]
         for idx, comment in enumerate(comments):
             if idx in comment_map:
                 result_line = comment_map[idx]
