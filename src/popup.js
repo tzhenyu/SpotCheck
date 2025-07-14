@@ -3,19 +3,14 @@
  * Handles API key management and comment extraction through the popup UI
  */
 
-// const API_KEY_STORAGE_KEY = "gemini_api_key";
-// Add the backend API URL constant
+const API_KEY_STORAGE_KEY = "gemini_api_key";
 const BACKEND_API_URL = "http://localhost:8001";
 // Auto features are always enabled (no toggles)
 const AUTO_EXTRACT_STORAGE_KEY = "auto_extract_enabled";
 const AUTO_UPLOAD_STORAGE_KEY = "auto_upload_enabled";
 
 // DOM Elements
-const apiKeyInput = document.getElementById('api-key');
-const saveButton = document.getElementById('save-btn');
-const clearButton = document.getElementById('clear-btn');
-const extractAllButton = document.getElementById('extract-all-btn');
-const downloadCsvButton = document.getElementById('download-csv-btn');
+const apiKeyInput = document.getElementById('gemini-api-key');
 const statusMessage = document.getElementById('status-message');
 const commentsContainer = document.getElementById('comments-container');
 const commentsList = document.getElementById('comments-list');
@@ -23,55 +18,76 @@ const extractionProgress = document.getElementById('extraction-progress');
 const progressBar = document.getElementById('progress-bar');
 const progressText = document.getElementById('progress-text');
 const commentCount = document.getElementById('comment-count');
-const uploadSqlButton = document.getElementById('upload-sql-btn');
 
 // Stored comments
 let storedComments = [];
 
+// Global error handler for logging
+window.onerror = function(message, source, lineno, colno, error) {
+  alert('JS Error: ' + message + ' at ' + source + ':' + lineno);
+  return false;
+};
+console.log('popup.js loaded at', new Date().toISOString());
+
 // Load API key from storage when popup opens
-function loadApiKey() {
+async function loadApiKey() {
   try {
-    chrome.storage.local.get([API_KEY_STORAGE_KEY], (result) => {
-      if (result[API_KEY_STORAGE_KEY]) {
-        apiKeyInput.value = result[API_KEY_STORAGE_KEY];
-        showStatus('API key loaded from storage', 'success');
+    const result = await new Promise(resolve => {
+      chrome.storage.local.get([API_KEY_STORAGE_KEY], resolve);
+    });
+    alert('Loaded API key from storage: ' + result[API_KEY_STORAGE_KEY]);
+    console.log('Loaded API key from storage:', result[API_KEY_STORAGE_KEY]);
+    if (result[API_KEY_STORAGE_KEY]) {
+      apiKeyInput.value = result[API_KEY_STORAGE_KEY];
+      showStatus('Gemini API key loaded', 'success');
+      apiKeyInput.classList.add('stored');
+      apiKeyInput.setAttribute('title', result[API_KEY_STORAGE_KEY]);
+    } else {
+      // Do not clear the input if user has typed something
+      if (!apiKeyInput.value) {
+        apiKeyInput.value = '';
+        apiKeyInput.classList.remove('stored');
+        apiKeyInput.removeAttribute('title');
       }
-      
-      // Get the current active tab to check if we're on Shopee
-      chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-        if (tabs[0] && tabs[0].url && tabs[0].url.includes('shopee.')) {
-          // Check if we need to manually trigger extraction or just display already processed comments
-          chrome.tabs.sendMessage(tabs[0].id, { action: "getProcessedComments" }, (response) => {
-            if (chrome.runtime.lastError) {
-              console.error("Error communicating with content script:", chrome.runtime.lastError);
-              extractComments();
-              return;
-            }
-            
-            // If we have cached comments from auto-extraction, display them
-            if (response && response.cachedComments && response.cachedComments.length > 0) {
-              console.log("Using cached comments from auto-extraction");
-              displayComments(response.cachedComments, false);
-            } 
-            // If there are processed comments on the page already, don't extract again
-            else if (response && response.hasProcessedComments) {
-              console.log("Comments already processed on this page");
-            } 
-            // Otherwise extract comments now
-            else {
-              extractComments();
-            }
-          });
-        } else {
-          // Clear comments when not on a Shopee page
-          clearComments();
-          showStatus('Not on a Shopee page', 'error');
-        }
-      });
+    }
+    
+    // Get the current active tab to check if we're on Shopee
+    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+      if (tabs[0] && tabs[0].url && tabs[0].url.includes('shopee.')) {
+        // Check if we need to manually trigger extraction or just display already processed comments
+        chrome.tabs.sendMessage(tabs[0].id, { action: "getProcessedComments" }, (response) => {
+          if (chrome.runtime.lastError) {
+            console.error("Error communicating with content script:", chrome.runtime.lastError);
+            extractComments();
+            return;
+          }
+          
+          // If we have cached comments from auto-extraction, display them
+          if (response && response.cachedComments && response.cachedComments.length > 0) {
+            console.log("Using cached comments from auto-extraction");
+            displayComments(response.cachedComments, false);
+          } 
+          // If there are processed comments on the page already, don't extract again
+          else if (response && response.hasProcessedComments) {
+            console.log("Comments already processed on this page");
+          } 
+          // Otherwise extract comments now
+          else {
+            extractComments();
+          }
+        });
+      } else {
+        // Clear comments when not on a Shopee page
+        clearComments();
+        showStatus('Not on a Shopee page', 'error');
+      }
     });
   } catch (error) {
+    alert('Failed to load API key: ' + error);
     console.error('Failed to load API key:', error);
     showStatus('Failed to load API key', 'error');
+    apiKeyInput.classList.remove('stored');
+    apiKeyInput.removeAttribute('title');
   }
 }
 
@@ -109,19 +125,28 @@ function clearComments() {
 // Save API key to storage
 function saveApiKey() {
   const apiKey = apiKeyInput.value.trim();
-  
-  if (!apiKey) {
-    showStatus('Please enter an API key', 'error');
-    return;
-  }
-  
   try {
+    alert('Saving API key: ' + apiKey);
+    console.log('Saving API key:', apiKey);
+    if (!apiKey) {
+      showStatus('Please enter an API key', 'error');
+      apiKeyInput.classList.remove('stored');
+      apiKeyInput.removeAttribute('title');
+      return;
+    }
     chrome.storage.local.set({ [API_KEY_STORAGE_KEY]: apiKey }, () => {
-      showStatus('API key saved successfully!', 'success');
+      console.log('API key saved to storage:', apiKey);
+      apiKeyInput.value = apiKey;
+      showStatus('Gemini API key saved!', 'success');
+      apiKeyInput.classList.add('stored');
+      apiKeyInput.setAttribute('title', apiKey);
     });
   } catch (error) {
+    alert('Failed to save API key: ' + error);
     console.error('Failed to save API key:', error);
     showStatus('Failed to save API key', 'error');
+    apiKeyInput.classList.remove('stored');
+    apiKeyInput.removeAttribute('title');
   }
 }
 
@@ -130,16 +155,21 @@ function clearApiKey() {
   apiKeyInput.value = '';
   try {
     chrome.storage.local.remove([API_KEY_STORAGE_KEY], () => {
-      showStatus('API key cleared', 'success');
+      showStatus('Gemini API key cleared', 'success');
+      apiKeyInput.classList.remove('stored');
+      apiKeyInput.removeAttribute('title');
     });
   } catch (error) {
     console.error('Failed to clear API key:', error);
     showStatus('Failed to clear API key', 'error');
+    apiKeyInput.classList.remove('stored');
+    apiKeyInput.removeAttribute('title');
   }
 }
 
 // Display status message
 function showStatus(message, type) {
+  if (!statusMessage) return;
   statusMessage.textContent = message;
   statusMessage.className = `status ${type}`;
   statusMessage.classList.remove('hidden');
@@ -447,85 +477,57 @@ async function uploadCommentsToSql() {
     showStatus('No comments to download', 'error');
     return;
   }
-  
   try {
     showStatus('Uploading comments to server...', 'success');
-    
-    // Get the current active tab to get the product URL and name
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
     const sourceUrl = tab ? tab.url : 'Unknown Source';
     const productName = tab && tab.title ? tab.title.replace(/ - Shopee.*$/, '') : 'Unknown Product';
-    
-    // Prepare complete data for upload with all fields for all comments
+    const geminiApiKey = await new Promise(resolve => {
+      chrome.storage.local.get([API_KEY_STORAGE_KEY], (result) => {
+        const key = result[API_KEY_STORAGE_KEY] || apiKeyInput.value.trim();
+        alert('API key used for upload: ' + key);
+        console.log('API key used for upload:', key);
+        resolve(key);
+      });
+    });
+    if (!geminiApiKey) {
+      showStatus('Please enter your Gemini API key', 'error');
+      return;
+    }
+
     const commentsForUpload = storedComments.map(comment => {
-      // Use same logic as downloadCommentsCSV
-      const rating = comment.starRating !== undefined ? comment.starRating : '';
-      
-      // Use the directly extracted timestamp properties if available
-      let timestampForCSV = comment.timestampOnly || '';
-      
-      // If the new properties aren't available, fall back to the previous extraction method
-      if (!timestampForCSV && comment.timestamp && comment.timestamp.includes('|')) {
-        const delimiterIndex = comment.timestamp.indexOf('|');
-        if (delimiterIndex !== -1) {
-          timestampForCSV = comment.timestamp.substring(0, delimiterIndex).trim();
-        }
-      }
-      
       return {
         comment: comment.comment,
         username: comment.username,
-        rating: rating,
+        rating: comment.starRating !== undefined ? comment.starRating : '',
         source: sourceUrl,
         product: productName,
-        timestamp: timestampForCSV
+        timestamp: comment.timestampOnly || comment.timestamp || ''
       };
     });
-    
-    // We'll use a batch size to avoid overloading the server
-    const BATCH_SIZE = 100;
-    let processedCount = 0;
-    
-    // Process in batches if we have many comments
-    for (let i = 0; i < commentsForUpload.length; i += BATCH_SIZE) {
-      const batchComments = commentsForUpload.slice(i, i + BATCH_SIZE);
-      
-      // Update progress for large uploads
-      if (commentsForUpload.length > BATCH_SIZE) {
-        showStatus(`Uploading batch ${Math.floor(i/BATCH_SIZE) + 1}/${Math.ceil(commentsForUpload.length/BATCH_SIZE)}...`, 'success');
-      }
-      
-      // Send data to FastAPI backend
+    const payload = {
+      comments: commentsForUpload.map(c => c.comment),
+      metadata: commentsForUpload,
+      product: productName,
+      gemini_api_key: geminiApiKey
+    };
+    console.log('Payload to backend:', payload);
+    try {
       const response = await fetch(`${BACKEND_API_URL}/comments`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ 
-          comments: batchComments.map(c => c.comment),
-          metadata: batchComments
-        })
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
       });
-      
-      if (!response.ok) {
-        throw new Error(`HTTP error! Status: ${response.status}`);
+      if (response.ok) {
+        showStatus('Comments uploaded successfully!', 'success');
+      } else {
+        showStatus('Failed to upload comments', 'error');
       }
-      
-      const result = await response.json();
-      
-      // Check for server-side errors
-      if (result.error) {
-        throw new Error(result.error);
-      }
-      
-      // Track progress
-      processedCount += batchComments.length;
+    } catch (error) {
+      showStatus('Failed to upload comments', 'error');
     }
-    
-    showStatus(`Successfully uploaded ${commentsForUpload.length} comments to database`, 'success');
   } catch (error) {
-    console.error('Error uploading comments:', error);
-    showStatus(`Upload failed: ${error.message}`, 'error');
+    showStatus('Failed to upload comments', 'error');
   }
 }
 
@@ -602,19 +604,22 @@ function updateCommentsWithAnalysis(results, offset = 0) {
 // Nothing needed to replace the removed toggle functions
 
 // Event listeners
-saveButton.addEventListener('click', saveApiKey);
-clearButton.addEventListener('click', clearApiKey);
-extractAllButton.addEventListener('click', extractAllPages);
-downloadCsvButton.addEventListener('click', () => downloadCommentsCSV());
-uploadSqlButton.addEventListener('click', uploadCommentsToSql);
-
-// Initialize popup
 document.addEventListener('DOMContentLoaded', () => {
+  const saveButton = document.getElementById('save-btn');
+  const clearButton = document.getElementById('clear-btn');
+  const extractAllButton = document.getElementById('extract-all-btn');
+  const downloadCsvButton = document.getElementById('download-csv-btn');
+  const uploadSqlButton = document.getElementById('upload-sql-btn');
+
+  if (saveButton) saveButton.addEventListener('click', saveApiKey);
+  if (clearButton) clearButton.addEventListener('click', clearApiKey);
+  if (extractAllButton) extractAllButton.addEventListener('click', extractAllPages);
+  if (downloadCsvButton) downloadCsvButton.addEventListener('click', () => downloadCommentsCSV());
+  if (uploadSqlButton) uploadSqlButton.addEventListener('click', uploadCommentsToSql);
+
   loadApiKey();
   ensureAutoFeaturesEnabled();
-  
-  // Listen for URL change messages from background script
-  chrome.runtime.onMessage.addListener((message) => {
+  chrome.runtime.onMessage.addEventListener && chrome.runtime.onMessage.addEventListener((message) => {
     if (message.action === "urlChanged") {
       clearComments();
       showStatus('Page changed, comments cleared', 'success');

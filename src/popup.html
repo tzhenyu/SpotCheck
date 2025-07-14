@@ -43,6 +43,11 @@
       font-size: 14px;
     }
 
+    #gemini-api-key.stored {
+      border: 2px solid #28a745;
+      background: #eaffea;
+    }
+
     .hidden {
       display: none;
     }
@@ -181,6 +186,8 @@
   <div class="setting-group">
     <label for="gemini-api-key">Gemini API Key</label>
     <input type="text" id="gemini-api-key" name="geminiApiKey" placeholder="Enter your Gemini API key" autocomplete="off">
+    <button id="save-btn" type="button" style="margin-top:6px;margin-right:6px;">Save Key</button>
+    <button id="clear-btn" type="button" style="margin-top:6px;">Clear Key</button>
   </div>
 
   <script src="popup.js"></script>

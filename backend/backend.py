@@ -56,6 +56,7 @@ class CommentData(BaseModel):
     prompt: Optional[str] = None
     product: Optional[str] = None
     usernames: Optional[List[str]] = None
+    gemini_api_key: Optional[str] = None
 
 class Query(BaseModel):
     text: str
@@ -173,12 +174,14 @@ async def process_comments(data: CommentData):
 @app.post("/analyze")
 async def analyze_comments(data: CommentData):
     logger.info(f"Received {len(data.comments)} comments")
+    logger.info(f"Request payload: {data.dict()}")
     comments_to_process = data.comments[:6]
     prompt = data.prompt
     product = data.product
+    gemini_api_key = data.gemini_api_key
     usernames = [item.get("username") if isinstance(item, dict) else None for item in getattr(data, "metadata", [])[:6]] if data.metadata else [None]*len(comments_to_process)
-    logger.info(f"Batch analyzing {len(comments_to_process)} comments with Ollama...")
-    results = await analyze_comments_batch_ollama(comments_to_process, prompt=prompt, product=product)
+    logger.info(f"Batch analyzing {len(comments_to_process)} comments")
+    results = await analyze_comments_batch_ollama(comments_to_process, prompt=prompt, product=product, gemini_api_key=gemini_api_key)
     logger.info(f"Completed analysis of {len(results)} comments")
     for i, username in enumerate(usernames):
         if i < len(results):
@@ -204,7 +207,7 @@ async def analyze_comments(data: CommentData):
     }
 
 
-async def analyze_comments_batch_ollama(comments: List[str], prompt: str = None, product: str = None) -> List[Dict]:
+async def analyze_comments_batch_ollama(comments: List[str], prompt: str = None, product: str = None, gemini_api_key: str = None) -> List[Dict]:
     try:
         base_prompt = prompt if prompt else ""
         system_prompt = (
@@ -222,19 +225,29 @@ async def analyze_comments_batch_ollama(comments: List[str], prompt: str = None,
             base_prompt += f"Product: {product}\n"
         for i, comment in enumerate(comments, 1):
             base_prompt += f"{i}. Review: '{comment}'\n"
-        response = requests.post(
-            "http://localhost:11434/api/generate",
-            json={
-                "model": llm_model,
-                "prompt": base_prompt,
-                "system": system_prompt,
-                "stream": False
-            },
-            timeout=60
-        )
-        response.raise_for_status()
-        result_json = response.json()
-        result_text = result_json.get("response", "").strip()
+        if gemini_api_key:
+            print(f"Gemini API Key: {gemini_api_key}")
+            from google import genai
+            genai.configure(api_key=gemini_api_key)
+            model_gemini = genai.GenerativeModel("gemini-2.0-flash")
+            print("using gemini")
+            response_gemini = model_gemini.generate_content(base_prompt)
+            result_text = response_gemini.text.strip()
+        else:
+            response = requests.post(
+                "http://localhost:11434/api/generate",
+                json={
+                    "model": llm_model,
+                    "prompt": base_prompt,
+                    "system": system_prompt,
+                    "stream": False
+                },
+                timeout=60
+            )
+            print("using ollama")
+            response.raise_for_status()
+            result_json = response.json()
+            result_text = result_json.get("response", "").strip()
         lines = [line.strip() for line in result_text.split('\n') if line.strip()]
         results = []
         comment_map = {}
@@ -260,7 +273,7 @@ async def analyze_comments_batch_ollama(comments: List[str], prompt: str = None,
             })
         return results
     except Exception as e:
-        logger.error(f"Error in batch analysis with Ollama: {str(e)}")
+        logger.error(f"Error in batch analysis with Ollama/Gemini: {str(e)}")
         return [
             {
                 "comment": comment[:50] + "..." if len(comment) > 50 else comment,
