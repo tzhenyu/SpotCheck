@@ -196,6 +196,7 @@ async def process_comments(data: CommentData):
 
 @app.post("/analyze")
 async def analyze_comments(data: CommentData):
+    start_time = time.time()
     logger.info(f"Received {len(data.comments)} comments for analysis")
     
     # Extract request parameters but don't log sensitive data
@@ -232,6 +233,8 @@ async def analyze_comments(data: CommentData):
             if res.get("comment") == suspicious.get("comment"):
                 res["verdict"] = suspicious.get("verdict")
                 res["explanation"] = suspicious.get("explanation")
+    elapsed = time.time() - start_time
+    logger.info(f"analyze_comments completed in {elapsed:.2f} seconds for {len(comments_to_process)} comments")
     return {
         "message": f"Processed {len(results)} comments",
         "results": results,
@@ -240,19 +243,22 @@ async def analyze_comments(data: CommentData):
     }
 
 
+import time
 async def analyze_comments_batch_ollama(comments: List[str], prompt: str = None, product: str = None, gemini_api_key: str = None) -> List[Dict]:
+    start_time = time.time()
     try:
         base_prompt = prompt if prompt else ""
         system_prompt = (
             "You are a fake review evaluator for e-commerce.\n\n"
             "Given a product and several Shopee reviews, classify each review as:\n"
-            "- **Genuine**: Relevant, product-specific, likely from a real user.\n"
-            "- **Suspicious**: Repetitive, vague, overly positive, or possibly AI-generated.\n"
-            "- **Not Relevant**: Unrelated to the product.\n\n"
+            "- Genuine: Relevant, product-specific, likely from a real user.\n"
+            "- Suspicious: Repetitive, vague, overly positive, or possibly AI-generated.\n"
+            "- Not Relevant: Unrelated to the product.\n\n"
             "Respond with a numbered list using this format:\n"
-            "1. <Verdict> - (Short reason)\n"
-            "Keep reasons under 15 words. Don’t repeat review text.\n"
-            "Do not flag review as suspicious just because it used other language."
+            "1. <Verdict> <Short reason>\n"
+            "Keep reasons under 15 words. Do not repeat review text.\n"
+            "Do not flag review as suspicious just because it used other language.\n"
+            "Do not use parentheses in the response."
         )
         if product:
             base_prompt += f"Product: {product}\n"
@@ -340,9 +346,13 @@ async def analyze_comments_batch_ollama(comments: List[str], prompt: str = None,
                 "is_fake": is_fake,
                 "explanation": explanation
             })
+        elapsed = time.time() - start_time
+        logger.info(f"analyze_comments_batch_ollama completed in {elapsed:.2f} seconds for {len(comments)} comments")
         return results
     except Exception as e:
         logger.error(f"Error in batch analysis with Ollama/Gemini: {str(e)}")
+        elapsed = time.time() - start_time
+        logger.info(f"analyze_comments_batch_ollama failed in {elapsed:.2f} seconds for {len(comments)} comments")
         return [
             {
                 "comment": comment[:50] + "..." if len(comment) > 50 else comment,
@@ -454,78 +464,106 @@ def suspicious_comment_semantic_search(comment: str) -> List[float]:
 #################### clear postgresql
 
 def clean_postgresql_data(table_name):
-    # Connect to Supabase PostgreSQL
-    conn = psycopg2.connect(**DB_CONFIG)
-
-    cur = conn.cursor()
-
-    # Remove records with empty comment
-    print("Removing records with empty comment...")
-    cur.execute(f"DELETE FROM {table_name} WHERE comment IS NULL OR TRIM(comment) = '';")
-    conn.commit()
-
-    # Remove emojis and \n from text in PostgreSQL
-    print("Removing emojis and \\n from text...")
-    cur.execute(f"""
-        UPDATE {table_name}
-        SET comment = REGEXP_REPLACE(
-            REGEXP_REPLACE(
-                comment,
-                '[\\n\\r]',  -- Remove newlines
-                '',
-                'g'
-            ),
-            '[^\\u0000-\\u007F\\u4E00-\\u9FFF\\u3400-\\u4DBF\\u2000-\\u206F\\u3000-\\u303F\\uFF00-\\uFFEF]',  -- Remove emojis, preserve Chinese
-            '',
-            'g'
-        )
-        WHERE comment ~ '[\\n\\r]' OR comment ~ '[^\\u0000-\\u007F\\u4E00-\\u9FFF\\u3400-\\u4DBF\\u2000-\\u206F\\u3000-\\u303F\\uFF00-\\uFFEF]';
-    """)
-    conn.commit()
-
-    # Remove duplicated comments
-    print("Removing duplicated comments...")
-    cur.execute(f"""
-        WITH ranked_comments AS (
-            SELECT 
-                id,  -- assuming there's a primary key
-                comment,
-                ROW_NUMBER() OVER (PARTITION BY comment ORDER BY id) AS rn
-            FROM {table_name}
-        )
-        DELETE FROM {table_name}
-        WHERE id IN (
-            SELECT id
-            FROM ranked_comments
-            WHERE rn > 1
-        );
-    """)
-    conn.commit()
-
-    # Fetch rows that don't have embeddings yet
-    print("Fetching records with no embedding...")
-    cur.execute(f"SELECT id, comment FROM {table_name} WHERE embedding IS NULL;")
-    rows = cur.fetchall()
-
-    # Generate and update embeddings
-    print("Embedding records with no embedding...")
-    for row_id, text in tqdm(rows):
+    try:
+        # Connect to Supabase PostgreSQL
+        conn = psycopg2.connect(**DB_CONFIG)
+        cur = conn.cursor()
+        print("Removing records with empty comment...")
         try:
-            embedding = model.encode(text).tolist()
+            cur.execute(f"DELETE FROM {table_name} WHERE comment IS NULL OR TRIM(comment) = '';")
+            conn.commit()
+        except psycopg2.errors.UniqueViolation as e:
+            logger.error(f"UniqueViolation removing empty comments: {str(e)} | Table: {table_name}")
+            conn.rollback()
         except Exception as e:
-            print(f"Error embedding row {row_id}: {e}")
-            embedding = None
-        cur.execute(
-            f"UPDATE {table_name} SET embedding = %s WHERE id = %s;",
-            (embedding, row_id)
-        )
-
-    conn.commit()
-    cur.close()
-    conn.close()
-
-    print("Done!")
-
+            logger.error(f"Error removing empty comments: {str(e)} | Table: {table_name}")
+            conn.rollback()
+        print("Removing emojis and \\n from text...")
+        try:
+            cur.execute(f"""
+                UPDATE {table_name}
+                SET comment = REGEXP_REPLACE(
+                    REGEXP_REPLACE(
+                        comment,
+                        '[\\n\\r]',  -- Remove newlines
+                        '',
+                        'g'
+                    ),
+                    '[^\\u0000-\\u007F\\u4E00-\\u9FFF\\u3400-\\u4DBF\\u2000-\\u206F\\u3000-\\u303F\\uFF00-\\uFFEF]',  -- Remove emojis, preserve Chinese
+                    '',
+                    'g'
+                )
+                WHERE comment ~ '[\\n\\r]' OR comment ~ '[^\\u0000-\\u007F\\u4E00-\\u9FFF\\u3400-\\u4DBF\\u2000-\\u206F\\u3000-\\u303F\\uFF00-\\uFFEF]';
+            """)
+            conn.commit()
+        except psycopg2.errors.UniqueViolation as e:
+            logger.error(f"UniqueViolation removing emojis/newlines: {str(e)} | Table: {table_name}")
+            conn.rollback()
+        except Exception as e:
+            logger.error(f"Error removing emojis/newlines: {str(e)} | Table: {table_name}")
+            conn.rollback()
+        print("Removing duplicated comments...")
+        try:
+            cur.execute(f"""
+                WITH ranked_comments AS (
+                    SELECT 
+                        id,  -- assuming there's a primary key
+                        comment,
+                        username,
+                        rating,
+                        source,
+                        product,
+                        page_timestamp,
+                        ROW_NUMBER() OVER (PARTITION BY comment, username, rating, source, product, page_timestamp ORDER BY id) AS rn
+                    FROM {table_name}
+                )
+                DELETE FROM {table_name}
+                WHERE id IN (
+                    SELECT id
+                    FROM ranked_comments
+                    WHERE rn > 1
+                );
+            """)
+            conn.commit()
+        except psycopg2.errors.UniqueViolation as e:
+            logger.error(f"UniqueViolation removing duplicated comments: {str(e)} | Table: {table_name}")
+            conn.rollback()
+        except Exception as e:
+            logger.error(f"Error removing duplicated comments: {str(e)} | Table: {table_name}")
+            conn.rollback()
+        print("Fetching records with no embedding...")
+        try:
+            cur.execute(f"SELECT id, comment FROM {table_name} WHERE embedding IS NULL;")
+            rows = cur.fetchall()
+        except Exception as e:
+            logger.error(f"Error fetching records with no embedding: {str(e)} | Table: {table_name}")
+            conn.rollback()
+            rows = []
+        print("Embedding records with no embedding...")
+        for row_id, text in tqdm(rows):
+            try:
+                embedding = model.encode(text).tolist()
+            except Exception as e:
+                print(f"Error embedding row {row_id}: {e}")
+                embedding = None
+            try:
+                cur.execute(
+                    f"UPDATE {table_name} SET embedding = %s WHERE id = %s;",
+                    (embedding, row_id)
+                )
+                conn.commit()
+            except Exception as e:
+                logger.error(f"Error updating embedding for row {row_id}: {str(e)} | Table: {table_name}")
+                conn.rollback()
+        cur.close()
+        conn.close()
+        print("Done!")
+    except Exception as e:
+        logger.error(f"Error in clean_postgresql_data: {str(e)} | Table: {table_name}")
+        if 'Could not determine Google Generative AI version' in str(e):
+            pass
+        else:
+            raise
 
 #################### BEHAVIORAL SEARCH
 
@@ -662,7 +700,7 @@ def determine_review_genuinty(suspicious_comments: List[Dict]) -> List[Dict]:
                 "verdict": verdict,
                 "explanation": explanation
             })
-        print(result)
+        # print(result)
         return result
     except Exception as e:
         logger.error(f"Error in determine_review_genuinty: {str(e)}")
