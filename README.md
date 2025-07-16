@@ -17,23 +17,23 @@ config:
 flowchart TD
 
     P1 -- Responses by LLM for each comment --> EX
-    JD1 -- sds --> EX
+    JD1 -- Request send back to Shopee store page --> EX
     KDB[Shopee review & rating training dataset from **Kaggle**] -- Semantic search dataset --> VDB
-    EX(Browser Extension
+    EX{Browser Extension
     *Scrape data from Shopee*
     <u>Username, comment, product name, rating, time stamp</u>
-    **Javascript**) -- Input Gemini API key/Left it Empty --> LLMCA(LLM context analysis
-    **Gemini/Ollama**)
+    **Javascript**} -- Input Gemini API key/Left it Empty --> LLMCA{LLM context analysis
+    **Gemini/Ollama**}
 
-    LLMCA -- Store comment metadata for continuous improvement --> DB("Relational DB
-    **PostgreSQL**")
+    LLMCA -- Store comment metadata for continuous improvement --> DB{"Relational DB
+    **PostgreSQL**"}
     LLMCA  -- If comment is suspicious --> VDB
     LLMCA -- If genuine/Unrelated --> JD1(Display Genuine/ Unrelated label to the appropriate comment
     **JavaScript**)
   
 
-    DB -- metadata w/o emoji --> VDB("Vector DB
-    **Supabase**")
+    DB -- metadata w/o emoji --> VDB{"Vector DB
+    **Supabase**"}
      n1[**langchain agent to perform these 2 analysis**]
     n1@{ shape: text}
     
@@ -53,9 +53,6 @@ flowchart TD
     
     
     Supabase_sub-process -- SQL queries/Similar score --> P1[Pass to JavaScript and use Gemini's LLM to explain]
-
-    
-    
     
 
 
