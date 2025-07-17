@@ -318,6 +318,7 @@ async def analyze_comments_batch_ollama(comments: List[str], prompt: str = None,
             result_json = response.json()
             result_text = result_json.get("response", "").strip()
         lines = [line.strip() for line in result_text.split('\n') if line.strip()]
+        print(f"LLM response raw text: {result_text}")
         results = []
         comment_map = {}
         # Try to match lines to comments by index, fallback to sequential assignment if no prefix match
@@ -380,7 +381,7 @@ def clean_timestamp(timestamp_str):
     """
     if not timestamp_str:
         return None
-        
+    
     # Extract timestamp in format YYYY-MM-DD HH:MM
     timestamp_match = re.search(r'(\d{4}-\d{2}-\d{2}\s\d{2}:\d{2})', timestamp_str)
     if timestamp_match:
@@ -449,6 +450,7 @@ def analyze_suspicious_comment(analysis_results: List[Dict]) -> List[Dict]:
                 "analysis": semantic_analysis,
                 "behavioral": behavioral_analysis
             })
+        print(suspicious_comments)
     return suspicious_comments
 
 def suspicious_comment_semantic_search(comment: str) -> List[float]:
@@ -656,19 +658,21 @@ def determine_review_genuinty(suspicious_comments: List[Dict]) -> List[Dict]:
             json={
                 "model": f"{llm_model}",
                 "prompt": (
-                    "You are a fake review evaluator. Your task is to classify reviews as either 'Genuine' or 'Fake' "
-                    "based on the semantic similarity scores and behavioral signals provided below.\n\n"
+                    "You are a fake review evaluator. Your task is to classify reviews as either 'Genuine' or 'Fake'. "
+                    "For each review, explain the behavioral and semantic analysis results in a user-friendly way. "
+                    "For behavioral analysis, describe the specific anomaly, such as posting the same comment across multiple products, posting many reviews quickly, or having an unusually high average rating. "
+                    "Use clear, specific explanations that help users understand why a review is flagged. "
                     f"Semantic: {json.dumps(semantic_scores)}\n"
                     f"Behavioral: {json.dumps(behavioral_results)}\n\n"
                     "Respond strictly with:\n"
                     "1. A **Python-style list** of classifications in this exact format:\n"
                     "   ['Genuine', 'Fake', 'Genuine']\n"
-                    "2. A **Python-style list** of single sentence explanations for each review, matching the order above.\n\n"
+                    "2. A **Python-style list** of single sentence explanations for each review, matching the order above. Each explanation should clearly describe the behavioral and semantic findings in plain language.\n\n"
                     "Do NOT add any introductions or explanations before the lists.\n"
                     "Begin your response immediately with the classification list, then the explanation list.\n"
                     "Example response:\n"
                     "['Genuine', 'Fake']\n"
-                    "['Relevant and product-specific.', 'Behavioral anomalies detected.']"
+                    "['Relevant and product-specific.', 'This review was posted across multiple products and is highly similar to others, indicating possible bot activity.']"
                 ),
                 "system": "You are a strict output generator. Follow the output format exactly and avoid unnecessary text.",
                 "stream": False
@@ -700,7 +704,7 @@ def determine_review_genuinty(suspicious_comments: List[Dict]) -> List[Dict]:
                 "verdict": verdict,
                 "explanation": explanation
             })
-        # print(result)
+        print(result)
         return result
     except Exception as e:
         logger.error(f"Error in determine_review_genuinty: {str(e)}")

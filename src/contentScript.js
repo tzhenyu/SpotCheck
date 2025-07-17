@@ -194,7 +194,7 @@ function debouncedProcessComments() {
     } else {
       console.log('No comments found to process');
     }
-  }, 50); // Reduce delay for faster DOM response
+  }, 200); // Reduce delay for faster DOM response
 }
 
 function showCommentsOverlay(comments) {
@@ -308,7 +308,7 @@ function observeShopeeComments() {
                                 event.target.matches('.shopee-icon-button--left');
       if (isPaginationButton) {
         console.log('Pagination button clicked');
-        setTimeout(() => debouncedProcessComments(), 500);
+        setTimeout(() => debouncedProcessComments(), 200);
       }
     }, true);
   }
@@ -390,7 +390,7 @@ function checkPaginationChange() {
 }
 
 // Poll for URL and pagination changes every 500ms (since SPAs can change without triggering events)
-setInterval(checkUrlChange, 500);
+setInterval(checkUrlChange, 100);
 
 function waitForCommentsSection() {
   // Remove any existing overlay when changing products
@@ -413,7 +413,7 @@ function waitForCommentsSection() {
       // Auto-extract comments when section is found if setting is enabled
       if (isAutoExtractEnabled) {
         // Give a moment for the page to fully render
-        setTimeout(() => debouncedProcessComments(), 300);
+        setTimeout(() => debouncedProcessComments(), 500);
       }
       
       observer.disconnect();
