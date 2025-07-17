@@ -27,15 +27,16 @@ print("Loading embedding model, please hold!")
 load_dotenv()
 
 #Constant for PostgreSQL statement
-DUPLICATE_COMMENT_PRODUCT_THRESHOLD = 3
-USER_FAST_REVIEW_COUNT = 5
+
+# ─── Constants ─────────────────────────────────────────────────────────────────
+DUPLICATE_COMMENT_PRODUCT_THRESHOLD = 2
+USER_FAST_REVIEW_COUNT = 3
 USER_FAST_REVIEW_INTERVAL = "1 hour"
 GENERIC_COMMENT_LENGTH = 40
 GENERIC_COMMENT_PRODUCT_THRESHOLD = 3
 HIGH_AVG_RATING = 5.0
 HIGH_AVG_RATING_COUNT = 5
-BURST_COUNT_THRESHOLD = 5
-# Database configuration
+
 
 DB_CONFIG = {
     "dbname": os.getenv("DBNAME"),
@@ -428,29 +429,37 @@ def semantic_search_postgres(query: str, top_n: int):
 
 def analyze_suspicious_comment(analysis_results: List[Dict]) -> List[Dict]:
     suspicious_comments = []
-    for result in analysis_results:
+    for idx, result in enumerate(analysis_results):
         explanation = result.get("explanation", "")
         if explanation.lower().startswith("suspicious"):
             verdict, sep, reason = explanation.partition("- ")
             username = result.get("username")
+            # Try to get username from metadata if not present
+            if not username and "metadata" in result and isinstance(result["metadata"], dict):
+                username = result["metadata"].get("username")
+            # Try to get username from batch metadata if available
+            if not username and "usernames" in result:
+                usernames_list = result["usernames"]
+                if isinstance(usernames_list, list) and idx < len(usernames_list):
+                    username = usernames_list[idx]
+            # Try to get username from global batch if still missing
+            if not username and "metadata" in result and isinstance(result["metadata"], list):
+                if idx < len(result["metadata"]):
+                    meta = result["metadata"][idx]
+                    if isinstance(meta, dict):
+                        username = meta.get("username")
             if not username:
-                # Try to get username from metadata if available
-                if "metadata" in result and isinstance(result["metadata"], dict):
-                    username = result["metadata"].get("username")
-            if not username:
-                # Try to get username from top-level usernames list if available
-                idx = analysis_results.index(result)
-                if "usernames" in result:
-                    username = result["usernames"][idx] if idx < len(result["usernames"]) else None
+                logger.warning(f"No username found for suspicious comment: {result.get('comment')}")
             semantic_analysis = suspicious_comment_semantic_search(result.get("comment"))
-            behavioral_analysis = query_duplicate_comment_across_products(result.get("comment"), table_name)
+            behavioral_analysis = []
+            if username and result.get("comment"):
+                behavioral_analysis = collect_behavioral_signals(username, result.get("comment"), table_name)
             suspicious_comments.append({
                 "comment": result.get("comment"),
-                # "username": username,
+                "username": username,
                 "analysis": semantic_analysis,
                 "behavioral": behavioral_analysis
             })
-        print(suspicious_comments)
     return suspicious_comments
 
 def suspicious_comment_semantic_search(comment: str) -> List[float]:
@@ -567,112 +576,42 @@ def clean_postgresql_data(table_name):
         else:
             raise
 
-#################### BEHAVIORAL SEARCH
-
-def _execute_query_with_param(query, params):
-    try:
-        conn = psycopg2.connect(**DB_CONFIG)
-        cursor = conn.cursor()
-        cursor.execute(query, params)
-        result = cursor.fetchall()
-        cursor.close()
-        conn.close()
-        return result
-    except Exception as e:
-        logger.error(f"Error executing parameterized query: {str(e)} | Query: {query} | Params: {params}")
-        return None
-    
-
-def query_duplicate_comment_across_products(comment, table_name):
-    """Query for duplicate comments across products by a user."""
-    sql_query = f"""
-    SELECT username, comment, COUNT(DISTINCT source) AS product_count
-    FROM {table_name}
-    WHERE comment = %s
-    GROUP BY username, comment
-    HAVING COUNT(DISTINCT source) > {DUPLICATE_COMMENT_PRODUCT_THRESHOLD};
-    """
-    return _execute_query_with_param(sql_query, (comment,))
-
-def query_user_many_reviews_quickly(comment, username, table_name):
-    """Query for users who posted many reviews quickly."""
-    sql_query = f"""
-    SELECT username, MIN(timestamp) AS first, MAX(timestamp) AS last, COUNT(*) AS total
-    FROM {table_name}
-    WHERE comment = %s AND username = %s
-    GROUP BY username
-    HAVING COUNT(*) > {USER_FAST_REVIEW_COUNT} AND MAX(timestamp) - MIN(timestamp) < INTERVAL '{USER_FAST_REVIEW_INTERVAL}';
-    """
-    return _execute_query_with_param(sql_query, (comment, username))
-
-def query_same_comment_multiple_users_products(comment, username, table_name):
-    """Query for same comment posted by multiple users across products."""
-    sql_query = f"""
-    SELECT comment, COUNT(DISTINCT username) AS user_count, COUNT(DISTINCT source) AS product_count
-    FROM {table_name}
-    WHERE comment = %s AND username = %s
-    GROUP BY comment
-    HAVING user_count > 3 AND product_count > 3;
-    """
-    return _execute_query_with_param(sql_query, (comment, username))
-
-def query_generic_comment_across_products(comment, username, table_name):
-    """Query for generic comments across products."""
-    sql_query = f"""
-    SELECT comment, COUNT(DISTINCT source) AS product_count
-    FROM {table_name}
-    WHERE LENGTH(comment) < {GENERIC_COMMENT_LENGTH} AND comment = %s AND username = %s
-    GROUP BY comment
-    HAVING product_count > {GENERIC_COMMENT_PRODUCT_THRESHOLD};
-    """
-    return _execute_query_with_param(sql_query, (comment, username))
-
-def query_high_avg_rating_users(comment, username, table_name):
-    """Query for users with high average rating."""
-    sql_query = f"""
-    SELECT username, AVG(rate) AS avg_rating, COUNT(*) AS review_count
-    FROM {table_name}
-    WHERE comment = %s AND username = %s
-    GROUP BY username
-    HAVING review_count >= {HIGH_AVG_RATING_COUNT} AND avg_rating = {HIGH_AVG_RATING};
-    """
-    return _execute_query_with_param(sql_query, (comment, username))
-
-def query_review_burst(comment, username, table_name):
-    """Query for review bursts by a user."""
-    sql_query = f"""
-    SELECT source, DATE_TRUNC('minute', timestamp) AS minute, COUNT(*) AS burst_count
-    FROM {table_name}
-    WHERE comment = %s AND username = %s
-    GROUP BY source, minute
-    HAVING COUNT(*) > {BURST_COUNT_THRESHOLD};
-    """
-    return _execute_query_with_param(sql_query, (comment, username))
-
 def determine_review_genuinty(suspicious_comments: List[Dict]) -> List[Dict]:
+    logger.info(f"suspicious_comments input: {json.dumps(suspicious_comments, default=str)}")
     semantic_scores = [item["analysis"] for item in suspicious_comments if "analysis" in item]
     behavioral_results = [item["behavioral"] for item in suspicious_comments if "behavioral" in item]
+    logger.info(f"semantic_scores: {json.dumps(semantic_scores, default=str)}")
+    logger.info(f"behavioral_results: {json.dumps(behavioral_results, default=str)}")
+    behavioral_evidence = []
+    for item in suspicious_comments:
+        username = item.get("username")
+        comment = item.get("comment")
+        if username and comment:
+            evidence = collect_behavioral_signals(username, comment, table_name)
+        else:
+            evidence = []
+        behavioral_evidence.append(evidence)
+        logger.info(f"behavioral_evidence (current): {json.dumps(behavioral_evidence, default=str)}")
     try:
         response = requests.post(
             "http://localhost:11434/api/generate",
             json={
                 "model": f"{llm_model}",
                 "prompt": (
-                    "You are a fake review evaluator. Your task is to classify reviews as either 'Genuine' or 'Fake'. "
-                    "For each review, explain the behavioral and semantic analysis results in a user-friendly way. "
-                    "For behavioral analysis, describe the specific anomaly, such as posting the same comment across multiple products, posting many reviews quickly, or having an unusually high average rating. "
-                    "Use clear, specific explanations that help users understand why a review is flagged. "
+                    "You are a fake review evaluator for e-commerce. For each review, classify as 'Fake' if either the behavioral analysis OR the semantic analysis indicates suspicious or promotional activity, even if only one is present. Classify as 'Genuine' ONLY if both behavioral and semantic analysis are normal. For each review, explain the reason in simple, clear, and friendly language that any online shopper can understand. Avoid technical terms like 'semantic analysis' or 'behavioral analysis'. Use phrases like 'This review looks real because...' or 'This review seems fake because...'. Keep explanations short, direct, and easy to read. Do not use words like 'semantic', 'behavioral', 'embedding', or 'similarity'.\n"
+                    "If the review is flagged for semantic reasons (e.g., overly promotional, vague, lacks product details), but behavioral is normal, classify as 'Fake'. If the review is flagged for behavioral reasons (e.g., abnormal posting pattern), but semantic is normal, classify as 'Fake'. If both are normal, classify as 'Genuine'. If the review is vague/promotional or looks copied, classify as 'Fake' and do not hedge or say further investigation is needed. Be decisive: if any signal is suspicious, verdict must be 'Fake'.\n"
                     f"Semantic: {json.dumps(semantic_scores)}\n"
-                    f"Behavioral: {json.dumps(behavioral_results)}\n\n"
+                    f"Behavioral: {json.dumps(behavioral_results)}\n"
+                    f"BehavioralEvidence: {json.dumps(behavioral_evidence)}\n\n"
                     "Respond strictly with:\n"
                     "1. A **Python-style list** of classifications in this exact format:\n"
                     "   ['Genuine', 'Fake', 'Genuine']\n"
-                    "2. A **Python-style list** of single sentence explanations for each review, matching the order above. Each explanation should clearly describe the behavioral and semantic findings in plain language.\n\n"
+                    "2. A **Python-style list** of single sentence explanations for each review, matching the order above. Each explanation should clearly describe why the review is classified as 'Fake' or 'Genuine', and must not contradict the verdict. Do not say 'may be fake' or 'further investigation is needed'—be direct.\n\n"
                     "Do NOT add any introductions or explanations before the lists.\n"
                     "Begin your response immediately with the classification list, then the explanation list.\n"
                     "Example response:\n"
                     "['Genuine', 'Fake']\n"
-                    "['Relevant and product-specific.', 'This review was posted across multiple products and is highly similar to others, indicating possible bot activity.']"
+                    "['This review looks real because it talks about the product in detail.', 'This review seems fake because it repeats the same phrases as other reviews.']"
                 ),
                 "system": "You are a strict output generator. Follow the output format exactly and avoid unnecessary text.",
                 "stream": False
@@ -699,12 +638,16 @@ def determine_review_genuinty(suspicious_comments: List[Dict]) -> List[Dict]:
         for idx, item in enumerate(suspicious_comments):
             verdict = verdicts[idx] if idx < len(verdicts) else None
             explanation = explanations[idx] if idx < len(explanations) else None
+            if verdict and verdict.strip().lower() == 'genuine':
+                verdict = 'GENUINE'
+            elif verdict and verdict.strip().lower() == 'fake':
+                verdict = 'FAKE'
             result.append({
                 "comment": item.get("comment"),
                 "verdict": verdict,
                 "explanation": explanation
             })
-        print(result)
+        logger.info(f"determine_review_genuinty result: {json.dumps(result, default=str)}")
         return result
     except Exception as e:
         logger.error(f"Error in determine_review_genuinty: {str(e)}")
@@ -717,6 +660,84 @@ def determine_review_genuinty(suspicious_comments: List[Dict]) -> List[Dict]:
             for item in suspicious_comments
         ]
 
+
+
+# ─── DB Helper ────────────────────────────────────────────────────────────────
+def _execute_query_with_param(query, params):
+    try:
+        conn = psycopg2.connect(**DB_CONFIG)
+        cursor = conn.cursor()
+        cursor.execute(query, params)
+        result = cursor.fetchall()
+        cursor.close()
+        conn.close()
+        return result
+    except Exception as e:
+        logger.error(f"SQL Error: {e} | Query: {query} | Params: {params}")
+        return None
+
+
+# ─── SQL Query Wrappers ────────────────────────────────────────────────────────
+def query_same_comment_multiple_users(comment, table_name):
+    sql = f"""
+    SELECT COUNT(DISTINCT username)
+    FROM {table_name}
+    WHERE comment = %s
+    """
+    return _execute_query_with_param(sql, (comment,))
+
+
+def query_user_repeated_same_comment(username, comment, table_name):
+    sql = f"""
+    SELECT COUNT(*)
+    FROM {table_name}
+    WHERE username = %s AND comment = %s
+    """
+    return _execute_query_with_param(sql, (username, comment))
+
+
+def query_comment_length(comment, table_name):
+    sql = "SELECT LENGTH(%s)"
+    return _execute_query_with_param(sql, (comment,))
+
+def query_duplicate_comment_across_products(comment, table_name):
+    sql = f"""
+    SELECT COUNT(DISTINCT product)
+    FROM {table_name}
+    WHERE comment = %s
+    """
+    return _execute_query_with_param(sql, (comment,))
+
+def query_user_posting_rate(username, table_name):
+    sql = f"""
+    SELECT MIN(page_timestamp), MAX(page_timestamp), COUNT(*)
+    FROM {table_name}
+    WHERE username = %s
+    """
+    return _execute_query_with_param(sql, (username,))
+
+def collect_behavioral_signals(username, comment, table_name):
+    evidence = []
+
+    if query_same_comment_multiple_users(comment, table_name)[0][0] > 1:
+        evidence.append("Same comment used by multiple users.")
+
+    if query_user_repeated_same_comment(username, comment, table_name)[0][0] > 1:
+        evidence.append("User reused the same comment.")
+
+    if query_comment_length(comment, table_name)[0][0] < 20:
+        evidence.append("Comment is short (under 30 chars).")
+
+    product_counts = query_duplicate_comment_across_products(comment, table_name)
+    if product_counts and len(product_counts[0]) > 0 and product_counts[0][0] > 1:
+        evidence.append("Same comment used for multiple products.")
+
+
+    # Optional: time-based evidence (if timestamp exists)
+    # rate_data = query_user_posting_rate(username, table_name)
+    # do analysis here
+
+    return evidence
 
 
 if __name__ == "__main__":

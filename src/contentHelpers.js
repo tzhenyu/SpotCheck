@@ -46,7 +46,35 @@ function createAnalysisDiv(result) {
   let color = COLORS.REAL;
   let bgColor = COLORS.REAL_BG;
   let explanation = result.explanation;
-  if (typeof explanation === 'string') {
+
+  if (typeof result.verdict === 'string') {
+    const backendVerdict = result.verdict.trim();
+    if (/^fake$/i.test(backendVerdict) || (backendVerdict.length > 0 && backendVerdict.toLowerCase().includes('fake'))) {
+      verdict = 'FAKE';
+      color = COLORS.FAKE;
+      bgColor = COLORS.FAKE_BG;
+    } else if (/^suspicious$/i.test(backendVerdict)) {
+      verdict = 'SUSPICIOUS';
+      color = '#ffa500';
+      bgColor = 'rgba(255,165,0,0.1)';
+    } else if (/^not relevant$/i.test(backendVerdict)) {
+      verdict = 'NOT RELEVANT';
+      color = '#888';
+      bgColor = 'rgba(128,128,128,0.1)';
+    } else if (/^genuine$/i.test(backendVerdict)) {
+      verdict = 'GENUINE';
+      color = COLORS.REAL;
+      bgColor = COLORS.REAL_BG;
+    } else if (/^real$/i.test(backendVerdict)) {
+      verdict = 'REAL';
+      color = COLORS.REAL;
+      bgColor = COLORS.REAL_BG;
+    } else {
+      verdict = backendVerdict.toUpperCase();
+      color = COLORS.REAL;
+      bgColor = COLORS.REAL_BG;
+    }
+  } else if (typeof explanation === 'string') {
     const match = explanation.match(/^(Genuine|Suspicious|Not Relevant|Fake|REAL|FAKE)\b\s*[:-]?\s*/i);
     if (match) {
       verdict = match[1].toUpperCase();
@@ -60,10 +88,18 @@ function createAnalysisDiv(result) {
       } else if (verdict === 'NOT RELEVANT') {
         color = '#888';
         bgColor = 'rgba(128,128,128,0.1)';
+      } else if (verdict === 'GENUINE' || verdict === 'REAL') {
+        verdict = 'REAL';
+        color = COLORS.REAL;
+        bgColor = COLORS.REAL_BG;
       } else {
         color = COLORS.REAL;
         bgColor = COLORS.REAL_BG;
       }
+    } else if (explanation.toLowerCase().includes('suspicious')) {
+      verdict = 'FAKE';
+      color = COLORS.FAKE;
+      bgColor = COLORS.FAKE_BG;
     }
   }
   analysisDiv.style.backgroundColor = bgColor;
