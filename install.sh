@@ -281,7 +281,7 @@ if [ -f "$BACKEND_SCRIPT" ]; then
         fi
 
         # Create a Python virtual environment outside of the git repo to avoid conflicts
-        VENV_DIR="/home/SpotCheck/venv"
+        VENV_DIR="/home/SpotCheck_venv"
         echo "Creating Python virtual environment at $VENV_DIR (outside git repo)..."
         
         # Make sure we have all necessary packages for venv creation
@@ -389,7 +389,7 @@ if [ -f "$BACKEND_SCRIPT" ]; then
         fi
 
         # Install required Python packages if requirements.txt exists
-        REQUIREMENTS_FILE="$CLONE_DIR/backend/requirements.txt"
+        REQUIREMENTS_FILE="$CLONE_DIR/requirements.txt"
         if [ -f "$REQUIREMENTS_FILE" ]; then
             echo "Installing Python dependencies from requirements.txt..."
             # Check if pip is now installed
