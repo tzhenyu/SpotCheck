@@ -389,7 +389,7 @@ if [ -f "$BACKEND_SCRIPT" ]; then
         fi
 
         # Install required Python packages if requirements.txt exists
-        REQUIREMENTS_FILE="$CLONE_DIR/backend/requirements.txt"
+        REQUIREMENTS_FILE="$CLONE_DIR/requirements.txt"
         if [ -f "$REQUIREMENTS_FILE" ]; then
             echo "Installing Python dependencies from requirements.txt..."
             # Check if pip is now installed
