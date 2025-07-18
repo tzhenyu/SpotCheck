@@ -70,9 +70,10 @@ function createAnalysisDiv(result) {
       color = COLORS.REAL;
       bgColor = COLORS.REAL_BG;
     } else {
+      // If we don't recognize the verdict, keep the original and set neutral colors
       verdict = backendVerdict.toUpperCase();
-      color = COLORS.REAL;
-      bgColor = COLORS.REAL_BG;
+      color = '#666';
+      bgColor = 'rgba(128,128,128,0.1)';
     }
   } else if (typeof explanation === 'string') {
     const match = explanation.match(/^(Genuine|Suspicious|Not Relevant|Fake|REAL|FAKE)\b\s*[:-]?\s*/i);
@@ -96,10 +97,15 @@ function createAnalysisDiv(result) {
         color = COLORS.REAL;
         bgColor = COLORS.REAL_BG;
       }
-    } else if (explanation.toLowerCase().includes('suspicious')) {
+    } else if (explanation.toLowerCase().includes('fake') || explanation.toLowerCase().includes('suspicious')) {
       verdict = 'FAKE';
       color = COLORS.FAKE;
       bgColor = COLORS.FAKE_BG;
+    } else {
+      // Default to REAL if no indicators found in explanation
+      verdict = 'REAL';
+      color = COLORS.REAL;
+      bgColor = COLORS.REAL_BG;
     }
   }
   analysisDiv.style.backgroundColor = bgColor;
