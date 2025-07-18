@@ -27,8 +27,13 @@ const DOM_CLASSES = {
  * @returns {string[]} Array of comment texts
  */
 function extractShopeeCommentTexts() {
-  return Array.from(document.querySelectorAll(SELECTORS.COMMENT_DIV))
-    .map(el => el.textContent.trim());
+  // Always get fresh elements from current DOM
+  const commentElements = document.querySelectorAll(SELECTORS.COMMENT_DIV);
+  console.log(`extractShopeeCommentTexts: Found ${commentElements.length} comment elements`);
+  
+  return Array.from(commentElements)
+    .map(el => el.textContent.trim())
+    .filter(text => text.length > 0);
 }
 
 /**
@@ -37,6 +42,11 @@ function extractShopeeCommentTexts() {
  * @returns {HTMLElement} The created div element
  */
 function createAnalysisDiv(result) {
+  if (!result) {
+    console.error('createAnalysisDiv: result is null or undefined');
+    return null;
+  }
+  
   const analysisDiv = document.createElement('div');
   analysisDiv.className = DOM_CLASSES.COMMENT_ANALYSIS;
   analysisDiv.style.marginTop = '4px';
@@ -45,27 +55,97 @@ function createAnalysisDiv(result) {
   let verdict = 'REAL';
   let color = COLORS.REAL;
   let bgColor = COLORS.REAL_BG;
-  let explanation = result.explanation;
-  if (typeof explanation === 'string') {
-    const match = explanation.match(/^(Genuine|Suspicious|Not Relevant|Fake|REAL|FAKE)\b\s*[:-]?\s*/i);
-    if (match) {
-      verdict = match[1].toUpperCase();
-      explanation = explanation.slice(match[0].length).trim();
-      if (verdict === 'FAKE') {
+  let explanation = result.explanation || result.reason || '';
+
+  try {
+    if (typeof result.verdict === 'string') {
+      const backendVerdict = result.verdict.trim();
+      if (/^fake$/i.test(backendVerdict) || (backendVerdict.length > 0 && backendVerdict.toLowerCase().includes('fake'))) {
+        verdict = 'FAKE';
         color = COLORS.FAKE;
         bgColor = COLORS.FAKE_BG;
-      } else if (verdict === 'SUSPICIOUS') {
+        if (!explanation || explanation === 'No explanation provided') {
+          explanation = 'This review appears suspicious based on analysis.';
+        }
+      } else if (/^suspicious$/i.test(backendVerdict)) {
+        verdict = 'SUSPICIOUS';
         color = '#ffa500';
         bgColor = 'rgba(255,165,0,0.1)';
-      } else if (verdict === 'NOT RELEVANT') {
+        if (!explanation || explanation === 'No explanation provided') {
+          explanation = 'This review requires further investigation.';
+        }
+      } else if (/^not relevant$/i.test(backendVerdict)) {
+        verdict = 'NOT RELEVANT';
         color = '#888';
         bgColor = 'rgba(128,128,128,0.1)';
-      } else {
+        if (!explanation || explanation === 'No explanation provided') {
+          explanation = 'This review is not related to the product.';
+        }
+      } else if (/^genuine$/i.test(backendVerdict)) {
+        verdict = 'GENUINE';
         color = COLORS.REAL;
         bgColor = COLORS.REAL_BG;
+        if (!explanation || explanation === 'No explanation provided' || explanation.trim().endsWith('because')) {
+          explanation = 'This review appears authentic and helpful.';
+        }
+      } else if (/^real$/i.test(backendVerdict)) {
+        verdict = 'REAL';
+        color = COLORS.REAL;
+        bgColor = COLORS.REAL_BG;
+      } else {
+        verdict = backendVerdict.toUpperCase();
+        color = '#666';
+        bgColor = 'rgba(128,128,128,0.1)';
+      }
+    } else if (typeof explanation === 'string') {
+      const match = explanation.match(/^(Genuine|Suspicious|Not Relevant|Fake|REAL|FAKE)\b\s*[:-]?\s*/i);
+      if (match) {
+        verdict = match[1].toUpperCase();
+        explanation = explanation.slice(match[0].length).trim();
+        if (verdict === 'FAKE') {
+          color = COLORS.FAKE;
+          bgColor = COLORS.FAKE_BG;
+        } else if (verdict === 'SUSPICIOUS') {
+          color = '#ffa500';
+          bgColor = 'rgba(255,165,0,0.1)';
+        } else if (verdict === 'NOT RELEVANT') {
+          color = '#888';
+          bgColor = 'rgba(128,128,128,0.1)';
+        } else if (verdict === 'GENUINE' || verdict === 'REAL') {
+          verdict = 'REAL';
+          color = COLORS.REAL;
+          bgColor = COLORS.REAL_BG;
+          if (!explanation || explanation.trim() === '') {
+            explanation = 'This review appears authentic and helpful.';
+          }
+        } else {
+          color = COLORS.REAL;
+          bgColor = COLORS.REAL_BG;
+          if (!explanation || explanation.trim() === '') {
+            explanation = 'This review appears authentic.';
+          }
+        }
+      } else if (explanation.toLowerCase().includes('fake') || explanation.toLowerCase().includes('suspicious')) {
+        verdict = 'FAKE';
+        color = COLORS.FAKE;
+        bgColor = COLORS.FAKE_BG;
+      } else {
+        verdict = 'REAL';
+        color = COLORS.REAL;
+        bgColor = COLORS.REAL_BG;
+        if (!explanation || explanation.trim() === '' || explanation === 'No explanation provided' || explanation.trim().endsWith('because')) {
+          explanation = 'This review appears authentic.';
+        }
       }
     }
+  } catch (error) {
+    console.error('createAnalysisDiv: Error processing verdict/explanation:', error);
+    verdict = 'ERROR';
+    explanation = 'Error processing result';
+    color = '#f00';
+    bgColor = 'rgba(255,0,0,0.1)';
   }
+  
   analysisDiv.style.backgroundColor = bgColor;
   analysisDiv.style.border = `1px solid ${color}`;
   analysisDiv.style.fontSize = '12px';
@@ -134,11 +214,15 @@ window.ShopeeHelpers = {
    * @returns {Array<Object>} Array of comment objects with text, username, and timestamp
    */
   extractDetailedCommentData() {
-    // Use CommentExtractor if available, otherwise fallback to basic extraction
+    // Always get fresh data from current page, don't use cached data
     if (window.CommentExtractor) {
-      return window.CommentExtractor.extractAllComments();
+      console.log('extractDetailedCommentData: Using CommentExtractor for fresh extraction');
+      // Call the synchronous current page extraction to get fresh data
+      const currentPageComments = window.CommentExtractor.extractCurrentPageComments();
+      return currentPageComments;
     } else {
-      // Fallback to basic comment extraction
+      console.log('extractDetailedCommentData: Using fallback extraction');
+      // Fallback to basic comment extraction with fresh data
       const comments = this.extractShopeeCommentTexts();
       return comments.map(text => ({
         comment: text,

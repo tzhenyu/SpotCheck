@@ -23,8 +23,11 @@ let accumulatedComments = [];
  * @returns {Array<Object>} Array of comment objects with text, username, and timestamp
  */
 function extractCurrentPageComments() {
+  // Always get fresh comment elements from the current DOM
   const commentElements = document.querySelectorAll(COMMENT_SELECTORS.COMMENT);
   const currentPageComments = [];
+
+  console.log(`extractCurrentPageComments: Found ${commentElements.length} comment elements on current page`);
 
   commentElements.forEach((commentElement) => {
     // Find the parent container that contains both comment and metadata
@@ -56,6 +59,7 @@ function extractCurrentPageComments() {
     }
   });
 
+  console.log(`extractCurrentPageComments: Returning ${currentPageComments.length} valid comments`);
   return currentPageComments;
 }
 
@@ -94,13 +98,16 @@ function accumulateCurrentPageComments() {
 async function extractAllComments(resetAccumulated = false) {
   if (resetAccumulated) {
     accumulatedComments = [];
+    console.log('extractAllComments: Reset accumulated comments');
   }
+  
+  // Always extract fresh comments from current page (don't accumulate for single page)
+  const currentPageComments = extractCurrentPageComments();
+  
+  console.log(`extractAllComments: Extracted ${currentPageComments.length} comments from current page`);
   
   // Extract page metadata
   const pageMetadata = extractPageMetadata();
-  
-  // Add current page comments to accumulated collection
-  const currentPageComments = accumulateCurrentPageComments();
   
   // Add page metadata to each comment
   currentPageComments.forEach(comment => {
@@ -108,7 +115,9 @@ async function extractAllComments(resetAccumulated = false) {
     comment.variation = pageMetadata.variation;
   });
   
-  return accumulatedComments;
+  // For single page extraction, return current page comments directly
+  // Don't accumulate unless specifically doing multi-page extraction
+  return currentPageComments;
 }
 
 /**
@@ -438,6 +447,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 // Export functions to global scope for use in other scripts
 window.CommentExtractor = {
   extractAllComments,
+  extractCurrentPageComments,
   waitForComments,
   extractStarRating,
   extractPageMetadata,

@@ -1,6 +1,6 @@
 /**
  * Analyze comments using Python backend
- * @param {string[]} comments - Array of comments to analyze
+ * @param {string[]|object[]} comments - Array of comments to analyze (strings or objects with metadata)
  * @param {string} prompt - Optional prompt to send to backend
  * @param {string} product - Optional product name
  * @param {string} apiKey - Optional Gemini API key
@@ -8,21 +8,51 @@
  */
 async function analyzeCommentsWithPythonBackend(comments, prompt = null, product = null, apiKey = null) {
   try {
-    const body = { comments };
+    // Handle both string arrays and object arrays with metadata
+    let commentTexts;
+    let metadata = null;
+    
+    if (comments.length > 0 && typeof comments[0] === 'object' && comments[0].comment) {
+      // Comments are objects with metadata (from detailed extraction)
+      commentTexts = comments.map(c => c.comment);
+      metadata = comments.map(c => ({
+        comment: c.comment,
+        username: c.username || 'Unknown user',
+        rating: c.starRating || 0,
+        source: window.location?.hostname || 'unknown',
+        product: product || document.title || 'Unknown Product',
+        timestamp: c.timestampOnly || c.timestamp || new Date().toISOString()
+      }));
+    } else {
+      // Comments are simple strings
+      commentTexts = Array.isArray(comments) ? comments : [comments];
+    }
+    
+    const body = { comments: commentTexts };
     if (prompt) body.prompt = prompt;
     if (product) body.product = product;
     if (apiKey) body.gemini_api_key = apiKey;
+    if (metadata) body.metadata = metadata;
     
     console.log("Sending analyze request to backend with API key:", apiKey ? "Yes (masked for security)" : "No");
-    const response = await fetch("http://127.0.0.1:8001/analyze", {
+    console.log("Comments input type:", typeof comments[0], "length:", comments.length);
+    console.log("Metadata being sent:", metadata);
+    console.log("Request body:", JSON.stringify({...body, gemini_api_key: apiKey ? "***HIDDEN***" : null}));
+    
+    const response = await fetch("http://localhost:8001/analyze", {
       method: "POST",
       headers: {
         "Content-Type": "application/json"
       },
       body: JSON.stringify(body)
     });
+    
+    console.log("Response status:", response.status);
+    console.log("Response headers:", response.headers);
+    
     if (!response.ok) {
       const errorText = await response.text();
+      console.error("Backend error response:", errorText);
       throw new Error(`Python backend error (${response.status}): ${errorText}`);
     }
     const data = await response.json();
@@ -34,12 +64,16 @@ async function analyzeCommentsWithPythonBackend(comments, prompt = null, product
     }
     // Parse results to match analyzeCommentsDirectly output
     const results = [];
-    for (let i = 0; i < comments.length; i++) {
+    for (let i = 0; i < commentTexts.length; i++) {
       const backendResult = data.results[i] || {};
+      const originalComment = comments[i];
+      
       results.push({
-        comment: backendResult.comment || (comments[i].length > 50 ? comments[i].substring(0, 50) + "..." : comments[i]),
+        comment: backendResult.comment || (commentTexts[i].length > 50 ? commentTexts[i].substring(0, 50) + "..." : commentTexts[i]),
         is_fake: backendResult.is_fake,
-        explanation: backendResult.explanation || ""
+        explanation: backendResult.explanation || "",
+        // Include username if available from original metadata
+        username: (typeof originalComment === 'object' && originalComment.username) ? originalComment.username : undefined
       });
     }
     return {
@@ -77,6 +111,7 @@ async function analyzeCommentsWithBackendOnly(comments, productName = null) {
       console.warn("Could not retrieve API key:", keyError);
     }
     
+    // Pass comments as-is (could be strings or objects with metadata)
     return await window.LLMProcessing.analyzeCommentsWithPythonBackend(comments, prompt, productName, apiKey);
   } catch (error) {
     console.error("Error analyzing with backend only:", error);

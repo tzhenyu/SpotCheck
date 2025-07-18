@@ -676,12 +676,38 @@ document.addEventListener('DOMContentLoaded', () => {
   const extractAllButton = document.getElementById('extract-all-btn');
   const downloadCsvButton = document.getElementById('download-csv-btn');
   const uploadSqlButton = document.getElementById('upload-sql-btn');
+  const testApiButton = document.getElementById('test-api-btn');
 
   if (saveButton) saveButton.addEventListener('click', saveApiKey);
   if (clearButton) clearButton.addEventListener('click', clearApiKey);
   if (extractAllButton) extractAllButton.addEventListener('click', extractAllPages);
   if (downloadCsvButton) downloadCsvButton.addEventListener('click', () => downloadCommentsCSV());
   if (uploadSqlButton) uploadSqlButton.addEventListener('click', uploadCommentsToSql);
+  if (testApiButton) {
+    testApiButton.addEventListener('click', async function() {
+      try {
+        showStatus('Testing API connection...', 'success');
+        
+        const response = await fetch('http://localhost:8001/', {
+          method: 'GET',
+          headers: {
+            'Accept': 'application/json'
+          }
+        });
+        
+        if (response.ok) {
+          const data = await response.json();
+          showStatus('API connection successful!', 'success');
+          console.log('API test success:', data);
+        } else {
+          showStatus('API connection failed: ' + response.status, 'error');
+        }
+      } catch (error) {
+        showStatus('API connection error: ' + error.message, 'error');
+        console.error('API test error:', error);
+      }
+    });
+  }
 
   // Initialize the popup
   initializePopup();
@@ -714,3 +740,58 @@ function initializePopup() {
     showStatus('Error initializing popup: ' + error.message, 'error');
   }
 }
+
+// Set up event listeners when DOM is loaded
+document.addEventListener('DOMContentLoaded', function() {
+  console.log('DOM loaded, setting up event listeners');
+  
+  // Get button elements
+  const saveBtn = document.getElementById('save-btn');
+  const clearBtn = document.getElementById('clear-btn');
+  const testApiBtn = document.getElementById('test-api-btn');
+  
+  // Add event listeners
+  if (saveBtn) {
+    saveBtn.addEventListener('click', saveApiKey);
+  }
+  
+  if (clearBtn) {
+    clearBtn.addEventListener('click', function() {
+      apiKeyInput.value = '';
+      chrome.storage.local.remove([API_KEY_STORAGE_KEY], () => {
+        showStatus('API key cleared', 'success');
+        apiKeyInput.classList.remove('stored');
+        apiKeyInput.removeAttribute('title');
+      });
+    });
+  }
+  
+  if (testApiBtn) {
+    testApiBtn.addEventListener('click', async function() {
+      try {
+        showStatus('Testing API connection...', 'success');
+        
+        const response = await fetch('http://localhost:8001/', {
+          method: 'GET',
+          headers: {
+            'Accept': 'application/json'
+          }
+        });
+        
+        if (response.ok) {
+          const data = await response.json();
+          showStatus('API connection successful!', 'success');
+          console.log('API test success:', data);
+        } else {
+          showStatus('API connection failed: ' + response.status, 'error');
+        }
+      } catch (error) {
+        showStatus('API connection error: ' + error.message, 'error');
+        console.error('API test error:', error);
+      }
+    });
+  }
+  
+  // Initialize popup
+  initializePopup();
+});

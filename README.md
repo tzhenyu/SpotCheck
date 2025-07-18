@@ -196,9 +196,10 @@ Runs multiple SQL queries to extract behavioral patterns:
 
 ### Continuous Learning
 
-* 📥 **Live feedback loop**: New reviews are stored for retraining purposes.
-* 📊 **Fine-tuning**: External datasets (e.g. Kaggle) used to improve classification accuracy.
-* 🧹 **Preprocessing**: Comments are cleaned (emoji stripping, whitespace removal) to improve vector quality and matching performance.
+
+* **Live feedback loop**: New reviews are stored for retraining purposes.
+* **Fine-tuning**: External datasets (e.g. Kaggle) used to improve classification accuracy.
+* **Preprocessing**: Comments are cleaned (emoji stripping, whitespace removal) to improve vector quality and matching performance.
 
 
 
