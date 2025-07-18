@@ -131,36 +131,22 @@ Three-stage LLM pipeline:
 - LLMs are **self-hosted locally** for fast and private inference
 
 ## 🚀 Installation
-### Use Cloud infra
+
+> Full setup guide refer to [INSTALL.md](https://github.com/tzhenyu/SpotCheck/blob/main/INSTALL.md)
+### Cloud Deploy (Minimal)
 #### Requirements
 - Python 3.12.3 - backend server
 - Chromium-based browser - for extension
 
-#### Deployment
-1. Install python library
-```bash
-pip install -r requirements.txt
-```
-2. Run backend server
-```bash
-python ./backend/backend.py
-```
-3. Install browser extension
-- Open chromium-based browser
-- Go to extension settings
-- Enable developer mode
-- Click "load unpacked"
-- Select ```src``` folder from this repo
-4. Access Shopee product page to try!
 
-### Deploy Locally
+### Local Deploy (Recommended)
 #### Requirements
 - Ollama - to run LLM locally
 - GPU with 8GB VRAM (preferably) - run LLM locally
 - Supabase - relational DB + vector DB
 - Python 3.12.3 - backend server
 - Chromium browser - for extension
-> Full setup guide (extension, API endpoints, environment setup, model config) will be released in the next development phase.
+
 
 ## Performance
 | Run        | `analyze_comments` (Local LLM) | `analyze_comments` (Gemini LLM) |
