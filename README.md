@@ -26,7 +26,7 @@ https://github.com/user-attachments/assets/c8724055-4e96-4b16-850f-6e7b35fde23e
 2. **Extension scrapes** all reviews.  
 3. **Backend analyzes** each review using LLMs and past data.  
 4. **Verdicts and explanations** are shown inline.
-6. **User shops** with more confidence and clarity.
+5. **User shops** with more confidence and clarity.
 
 
 ## 🎯 Types of Fake Reviews Detected
