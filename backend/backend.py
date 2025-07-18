@@ -18,6 +18,12 @@ import os
 import asyncio
 from tqdm import tqdm
 import importlib.metadata
+import time
+import os
+import asyncio
+from tqdm import tqdm
+import importlib.metadata
+import time
 # from adam import agent_executor
 
 model = SentenceTransformer("all-MiniLM-L6-v2")
@@ -244,7 +250,6 @@ async def analyze_comments(data: CommentData):
     }
 
 
-import time
 async def analyze_comments_batch_ollama(comments: List[str], prompt: str = None, product: str = None, gemini_api_key: str = None) -> List[Dict]:
     start_time = time.time()
     try:
@@ -719,18 +724,33 @@ def query_user_posting_rate(username, table_name):
 def collect_behavioral_signals(username, comment, table_name):
     evidence = []
 
-    if query_same_comment_multiple_users(comment, table_name)[0][0] > 1:
-        evidence.append("Same comment used by multiple users.")
+    try:
+        result = query_same_comment_multiple_users(comment, table_name)
+        if result and len(result) > 0 and result[0][0] > 1:
+            evidence.append("Same comment used by multiple users.")
+    except Exception as e:
+        logger.error(f"Error in query_same_comment_multiple_users: {str(e)}")
 
-    if query_user_repeated_same_comment(username, comment, table_name)[0][0] > 1:
-        evidence.append("User reused the same comment.")
+    try:
+        result = query_user_repeated_same_comment(username, comment, table_name)
+        if result and len(result) > 0 and result[0][0] > 1:
+            evidence.append("User reused the same comment.")
+    except Exception as e:
+        logger.error(f"Error in query_user_repeated_same_comment: {str(e)}")
 
-    if query_comment_length(comment, table_name)[0][0] < 20:
-        evidence.append("Comment is short (under 30 chars).")
+    try:
+        result = query_comment_length(comment, table_name)
+        if result and len(result) > 0 and result[0][0] < 20:
+            evidence.append("Comment is short (under 30 chars).")
+    except Exception as e:
+        logger.error(f"Error in query_comment_length: {str(e)}")
 
-    product_counts = query_duplicate_comment_across_products(comment, table_name)
-    if product_counts and len(product_counts[0]) > 0 and product_counts[0][0] > 1:
-        evidence.append("Same comment used for multiple products.")
+    try:
+        product_counts = query_duplicate_comment_across_products(comment, table_name)
+        if product_counts and len(product_counts) > 0 and len(product_counts[0]) > 0 and product_counts[0][0] > 1:
+            evidence.append("Same comment used for multiple products.")
+    except Exception as e:
+        logger.error(f"Error in query_duplicate_comment_across_products: {str(e)}")
 
 
     # Optional: time-based evidence (if timestamp exists)

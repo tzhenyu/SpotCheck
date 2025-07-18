@@ -14,15 +14,22 @@ async function analyzeCommentsWithPythonBackend(comments, prompt = null, product
     if (apiKey) body.gemini_api_key = apiKey;
     
     console.log("Sending analyze request to backend with API key:", apiKey ? "Yes (masked for security)" : "No");
-    const response = await fetch("http://127.0.0.1:8001/analyze", {
+    console.log("Request body:", JSON.stringify({...body, gemini_api_key: apiKey ? "***HIDDEN***" : null}));
+    
+    const response = await fetch("http://localhost:8001/analyze", {
       method: "POST",
       headers: {
         "Content-Type": "application/json"
       },
       body: JSON.stringify(body)
     });
+    
+    console.log("Response status:", response.status);
+    console.log("Response headers:", response.headers);
+    
     if (!response.ok) {
       const errorText = await response.text();
+      console.error("Backend error response:", errorText);
       throw new Error(`Python backend error (${response.status}): ${errorText}`);
     }
     const data = await response.json();

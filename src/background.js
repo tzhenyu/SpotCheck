@@ -3,7 +3,7 @@
  * Handles URL change detection and tab events
  */
 
-const API_BASE_URL = "http://127.0.0.1:8001";
+const API_BASE_URL = "http://localhost:8001";
 let currentUrl = "";
 
 // Storage keys
@@ -34,14 +34,18 @@ async function callAPI(endpoint, data = null) {
     }
     const url = `${API_BASE_URL}/${endpoint}`;
     console.log('Fetch URL:', url, 'Options:', options);
+    
     const response = await fetch(url, options);
     console.log('Fetch response status:', response.status);
+    console.log('Fetch response headers:', Object.fromEntries(response.headers.entries()));
+    
     let responseBody;
     try {
       responseBody = await response.text();
       console.log('Fetch response body:', responseBody);
     } catch (parseError) {
       console.error('Error parsing response body:', parseError);
+      throw new Error(`Failed to read response: ${parseError.message}`);
     }
     if (!response.ok) {
       throw new Error(`HTTP error ${response.status}: ${responseBody}`);

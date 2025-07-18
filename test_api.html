@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>API Test</title>
+</head>
+<body>
+    <h1>Backend API Test</h1>
+    <button onclick="testAnalyze()">Test /analyze endpoint</button>
+    <button onclick="testRoot()">Test / endpoint</button>
+    <div id="result"></div>
+
+    <script>
+        async function testRoot() {
+            try {
+                console.log("Testing root endpoint...");
+                const response = await fetch("http://localhost:8001/");
+                const data = await response.json();
+                document.getElementById('result').innerHTML = `<h3>Root Test Result:</h3><pre>${JSON.stringify(data, null, 2)}</pre>`;
+            } catch (error) {
+                console.error("Root test error:", error);
+                document.getElementById('result').innerHTML = `<h3>Root Test Error:</h3><pre>${error.message}</pre>`;
+            }
+        }
+
+        async function testAnalyze() {
+            try {
+                console.log("Testing analyze endpoint...");
+                
+                const body = { 
+                    comments: ["This is a test comment", "Another test comment"],
+                    product: "Test Product" 
+                };
+                
+                console.log("Request body:", JSON.stringify(body));
+                
+                const response = await fetch("http://localhost:8001/analyze", {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json"
+                    },
+                    body: JSON.stringify(body)
+                });
+                
+                console.log("Response status:", response.status);
+                console.log("Response headers:", Object.fromEntries(response.headers.entries()));
+                
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    throw new Error(`HTTP ${response.status}: ${errorText}`);
+                }
+                
+                const data = await response.json();
+                console.log("Response data:", data);
+                document.getElementById('result').innerHTML = `<h3>Analyze Test Result:</h3><pre>${JSON.stringify(data, null, 2)}</pre>`;
+            } catch (error) {
+                console.error("Analyze test error:", error);
+                document.getElementById('result').innerHTML = `<h3>Analyze Test Error:</h3><pre>${error.message}</pre>`;
+            }
+        }
+    </script>
+</body>
+</html>

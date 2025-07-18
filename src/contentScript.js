@@ -1,4 +1,4 @@
-const API_BASE_URL = "http://127.0.0.1:8001";
+const API_BASE_URL = "http://localhost:8001";
 const DEBOUNCE_DELAY = 500;
 
 // Track already analyzed comments to avoid duplicate API calls and store results
@@ -462,6 +462,8 @@ loadAutoExtractSetting();
 
 // Listen for messages from popup or background script
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+  console.log("Content script received message:", request);
+  
   if (request.action === "extractComments") {
     try {
       console.log("Received extractComments request in content script");
@@ -508,20 +510,63 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     return true; // Keep the message channel open for async response
   } else if (request.action === "autoExtractComments") {
     // Auto extraction triggered by background script
-    console.log("Auto extraction triggered");
+    console.log("Auto extraction triggered by background script");
     
-    // Refresh the auto-extract setting before proceeding
-    loadAutoExtractSetting();
+    // Force enable for testing
+    console.log("Forcing auto-extract enabled for debugging");
+    isAutoExtractEnabled = true;
     
-    // Slight delay to ensure setting is loaded
-    setTimeout(() => {
-      if (isAutoExtractEnabled) {
-        // Process comments using existing functionality
-        debouncedProcessComments();
-      } else {
-        console.log("Auto-extraction disabled, skipping");
+    console.log("Starting immediate comment extraction test...");
+    
+    // Test direct API call
+    setTimeout(async () => {
+      try {
+        console.log("Testing direct API call...");
+        const testComments = ["Test comment 1", "Test comment 2"];
+        
+        const response = await fetch("http://localhost:8001/analyze", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            comments: testComments
+          })
+        });
+        
+        console.log("Direct API call response status:", response.status);
+        
+        if (response.ok) {
+          const data = await response.json();
+          console.log("Direct API call SUCCESS:", data);
+          
+          // Show success overlay
+          const successDiv = document.createElement('div');
+          successDiv.style.cssText = 'position: fixed; top: 20px; right: 20px; background: green; color: white; padding: 10px; z-index: 999999; border-radius: 5px;';
+          successDiv.textContent = 'API Call SUCCESS!';
+          document.body.appendChild(successDiv);
+          setTimeout(() => successDiv.remove(), 3000);
+        } else {
+          console.error("Direct API call FAILED:", response.status);
+        }
+        
+      } catch (error) {
+        console.error("Direct API call ERROR:", error);
+        
+        // Show error overlay
+        const errorDiv = document.createElement('div');
+        errorDiv.style.cssText = 'position: fixed; top: 20px; right: 20px; background: red; color: white; padding: 10px; z-index: 999999; border-radius: 5px;';
+        errorDiv.textContent = 'API Call FAILED: ' + error.message;
+        document.body.appendChild(errorDiv);
+        setTimeout(() => errorDiv.remove(), 5000);
       }
-    }, 100);
+      
+      // Also try the normal flow
+      debouncedProcessComments();
+    }, 1000);
+    
+    sendResponse({ success: true, message: "Auto extraction debugging triggered" });
+    return true;
   } else if (request.action === "getProcessedComments") {
     try {
       console.log("getProcessedComments request received");

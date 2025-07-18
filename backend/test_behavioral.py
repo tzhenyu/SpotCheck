@@ -1,10 +1,16 @@
+#!/usr/bin/env python3
+
 from dotenv import load_dotenv
 import psycopg2
 import os
 import logging
 
-# ─── Load Environment Variables ────────────────────────────────────────────────
+# Load environment variables
 load_dotenv()
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 DB_CONFIG = {
     "dbname": os.getenv("DBNAME"),
@@ -16,20 +22,6 @@ DB_CONFIG = {
 
 table_name = os.getenv("TABLE_NAME")
 
-# ─── Constants ─────────────────────────────────────────────────────────────────
-DUPLICATE_COMMENT_PRODUCT_THRESHOLD = 2
-USER_FAST_REVIEW_COUNT = 3
-USER_FAST_REVIEW_INTERVAL = "1 hour"
-GENERIC_COMMENT_LENGTH = 40
-GENERIC_COMMENT_PRODUCT_THRESHOLD = 3
-HIGH_AVG_RATING = 5.0
-HIGH_AVG_RATING_COUNT = 5
-
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
-
-
-# ─── DB Helper ────────────────────────────────────────────────────────────────
 def _execute_query_with_param(query, params):
     try:
         conn = psycopg2.connect(**DB_CONFIG)
@@ -43,8 +35,6 @@ def _execute_query_with_param(query, params):
         logger.error(f"SQL Error: {e} | Query: {query} | Params: {params}")
         return None
 
-
-# ─── SQL Query Wrappers ────────────────────────────────────────────────────────
 def query_same_comment_multiple_users(comment, table_name):
     sql = f"""
     SELECT COUNT(DISTINCT username)
@@ -53,7 +43,6 @@ def query_same_comment_multiple_users(comment, table_name):
     """
     return _execute_query_with_param(sql, (comment,))
 
-
 def query_user_repeated_same_comment(username, comment, table_name):
     sql = f"""
     SELECT COUNT(*)
@@ -61,7 +50,6 @@ def query_user_repeated_same_comment(username, comment, table_name):
     WHERE username = %s AND comment = %s
     """
     return _execute_query_with_param(sql, (username, comment))
-
 
 def query_comment_length(comment, table_name):
     sql = "SELECT LENGTH(%s)"
@@ -74,14 +62,6 @@ def query_duplicate_comment_across_products(comment, table_name):
     WHERE comment = %s
     """
     return _execute_query_with_param(sql, (comment,))
-
-def query_user_posting_rate(username, table_name):
-    sql = f"""
-    SELECT MIN(page_timestamp), MAX(page_timestamp), COUNT(*)
-    FROM {table_name}
-    WHERE username = %s
-    """
-    return _execute_query_with_param(sql, (username,))
 
 def collect_behavioral_signals(username, comment, table_name):
     evidence = []
@@ -114,13 +94,22 @@ def collect_behavioral_signals(username, comment, table_name):
     except Exception as e:
         logger.error(f"Error in query_duplicate_comment_across_products: {str(e)}")
 
-    # Optional: time-based evidence (if timestamp exists)
-    # rate_data = query_user_posting_rate(username, table_name)
-    # do analysis here
-
     return evidence
 
-review = "jden mmg terbaik..dh bli brand mig xsedap..xpremium..jden jugak premium kain cantik sedap pakai dah basuh bnyak kali tetap ok..beli selai2 dekt live dapat murah giler😂..total dekat 20 helai dh beli"
-username = "s*****d"
-
-print(collect_behavioral_signals(username, review, "product_reviews"))
+if __name__ == "__main__":
+    review = "jden mmg terbaik..dh bli brand mig xsedap..xpremium..jden jugak premium kain cantik sedap pakai dah basuh bnyak kali tetap ok..beli selai2 dekt live dapat murah giler😂..total dekat 20 helai dh beli"
+    username = "s*****d"
+    
+    print("Testing collect_behavioral_signals function...")
+    print(f"Review: {review}")
+    print(f"Username: {username}")
+    print(f"Table: {table_name}")
+    
+    try:
+        result = collect_behavioral_signals(username, review, table_name)
+        print(f"Result: {result}")
+        print(f"Evidence count: {len(result)}")
+    except Exception as e:
+        print(f"Error: {str(e)}")
+        import traceback
+        traceback.print_exc()
