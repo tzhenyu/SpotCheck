@@ -4,6 +4,13 @@
 
 <p align="center">Fake Review Detection System for Shopee.</p>
 
+
+
+https://github.com/user-attachments/assets/c8724055-4e96-4b16-850f-6e7b35fde23e
+
+
+
+
 <p align="center">
   <a href="https://www.canva.com/design/DAGtV-AFfiI/ZQ5Cc2ztLegeqHOW7wkb_g/view?utm_content=DAGtV-AFfiI&utm_campaign=designshare&utm_medium=link2&utm_source=uniquelinks&utlId=hc919ac8010">Slides Presentation</a>
 </p>
