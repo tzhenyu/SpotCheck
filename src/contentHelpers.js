@@ -55,7 +55,7 @@ function createAnalysisDiv(result) {
   let verdict = 'REAL';
   let color = COLORS.REAL;
   let bgColor = COLORS.REAL_BG;
-  let explanation = result.explanation || result.reason || 'No explanation provided';
+  let explanation = result.explanation || result.reason || '';
 
   try {
     if (typeof result.verdict === 'string') {
@@ -71,14 +71,23 @@ function createAnalysisDiv(result) {
         verdict = 'SUSPICIOUS';
         color = '#ffa500';
         bgColor = 'rgba(255,165,0,0.1)';
+        if (!explanation || explanation === 'No explanation provided') {
+          explanation = 'This review requires further investigation.';
+        }
       } else if (/^not relevant$/i.test(backendVerdict)) {
         verdict = 'NOT RELEVANT';
         color = '#888';
         bgColor = 'rgba(128,128,128,0.1)';
+        if (!explanation || explanation === 'No explanation provided') {
+          explanation = 'This review is not related to the product.';
+        }
       } else if (/^genuine$/i.test(backendVerdict)) {
         verdict = 'GENUINE';
         color = COLORS.REAL;
         bgColor = COLORS.REAL_BG;
+        if (!explanation || explanation === 'No explanation provided' || explanation.trim().endsWith('because')) {
+          explanation = 'This review appears authentic and helpful.';
+        }
       } else if (/^real$/i.test(backendVerdict)) {
         verdict = 'REAL';
         color = COLORS.REAL;
@@ -106,9 +115,15 @@ function createAnalysisDiv(result) {
           verdict = 'REAL';
           color = COLORS.REAL;
           bgColor = COLORS.REAL_BG;
+          if (!explanation || explanation.trim() === '') {
+            explanation = 'This review appears authentic and helpful.';
+          }
         } else {
           color = COLORS.REAL;
           bgColor = COLORS.REAL_BG;
+          if (!explanation || explanation.trim() === '') {
+            explanation = 'This review appears authentic.';
+          }
         }
       } else if (explanation.toLowerCase().includes('fake') || explanation.toLowerCase().includes('suspicious')) {
         verdict = 'FAKE';
@@ -118,6 +133,9 @@ function createAnalysisDiv(result) {
         verdict = 'REAL';
         color = COLORS.REAL;
         bgColor = COLORS.REAL_BG;
+        if (!explanation || explanation.trim() === '' || explanation === 'No explanation provided' || explanation.trim().endsWith('because')) {
+          explanation = 'This review appears authentic.';
+        }
       }
     }
   } catch (error) {

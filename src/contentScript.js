@@ -6,8 +6,11 @@ let analyzedComments = new Map(); // Changed from Set to Map to store results
 let isApiCallInProgress = false;
 let apiCallTimer = null;
 let lastOverlayRunTimestamp = 0;
-const OVERLAY_RUN_THROTTLE_MS = 1000;
+const OVERLAY_RUN_THROTTLE_MS = 500;  // Reduced from 1000ms to 500ms
 let isPaginationInProgress = false; // Add flag to track pagination state
+let isAnalysisInProgress = false; // Add flag to prevent double analysis
+let paginationTriggerTimeout = null; // Prevent multiple pagination triggers
+let activeAnalysisCallId = null; // Track active analysis to prevent duplicates
 
 // Flag to track if content script is fully initialized
 let isContentScriptInitialized = false;
@@ -112,6 +115,13 @@ function displayResultsInComments(results) {
     // Set flag to prevent observer from responding to our DOM changes
     window.isUpdatingCommentDOM = true;
     
+    // Clear existing analysis displays first during pagination
+    if (isPaginationInProgress) {
+      const existingAnalysis = document.querySelectorAll('.comment-analysis');
+      existingAnalysis.forEach(div => div.remove());
+      console.log('displayResultsInComments: Cleared existing analysis during pagination');
+    }
+    
     // Always get fresh comment divs from current DOM
     const commentDivs = document.querySelectorAll(ShopeeHelpers.SELECTORS.COMMENT_DIV);
     console.log(`displayResultsInComments: Found ${commentDivs.length} comment divs, ${results.results.length} results`);
@@ -160,15 +170,35 @@ function displayResultsInComments(results) {
   } catch (error) {
     console.error('displayResultsInComments: General error:', error);
   } finally {
-    // Always reset the flag when done - with a longer delay to ensure DOM updates complete
+    // Always reset the flag when done - with a shorter delay
     setTimeout(() => {
       window.isUpdatingCommentDOM = false;
-    }, 500); // Increased from 100ms to 500ms
+    }, 200); // Reduced from 500ms to 200ms
   }
 }
 
 function showCommentsOverlay(comments) {
   if (!comments.length) return;
+  
+  // GLOBAL LOCK: Prevent ANY concurrent analysis calls
+  if (isApiCallInProgress || isAnalysisInProgress || window.isUpdatingCommentDOM) {
+    console.log('showCommentsOverlay: GLOBAL LOCK - Analysis already in progress, rejecting call');
+    return;
+  }
+  
+  // Check if pagination trigger is active
+  if (paginationTriggerTimeout && !isPaginationInProgress) {
+    console.log('showCommentsOverlay: Pagination trigger timeout active, rejecting to prevent duplicate');
+    return;
+  }
+  
+  // Set the analysis flag immediately to prevent concurrent calls
+  isAnalysisInProgress = true;
+  
+  // Generate unique call ID to track this analysis
+  const callId = Date.now() + '-' + Math.random().toString(36).substr(2, 9);
+  activeAnalysisCallId = callId;
+  console.log(`showCommentsOverlay: Starting analysis with ID: ${callId}`);
   
   // During pagination, we want to force reanalysis, so skip some checks
   const isPaginationScenario = isPaginationInProgress || (window.extractedCommentsCache.length === 0 && !analyzedComments.size);
@@ -179,6 +209,7 @@ function showCommentsOverlay(comments) {
     const now = Date.now();
     if (now - lastOverlayRunTimestamp < OVERLAY_RUN_THROTTLE_MS) {
       console.log('showCommentsOverlay: Throttled, skipping...');
+      isAnalysisInProgress = false; // Reset flag
       return;
     }
     lastOverlayRunTimestamp = now;
@@ -186,6 +217,7 @@ function showCommentsOverlay(comments) {
     // Additional check to prevent concurrent processing (but allow during pagination)
     if (isApiCallInProgress || isProcessingComments) {
       console.log('showCommentsOverlay: Processing already in progress, skipping...');
+      isAnalysisInProgress = false; // Reset flag
       return;
     }
   } else {
@@ -208,16 +240,22 @@ function showCommentsOverlay(comments) {
   const commentsHash = commentTexts.join('|');
   
   // During pagination, force reanalysis even if hash exists
-  if (!isPaginationScenario && analyzedComments.has(commentsHash)) {
+  if (!isPaginationScenario && !isPaginationInProgress && analyzedComments.has(commentsHash)) {
     console.log('showCommentsOverlay: Comments already analyzed, displaying cached results');
     displayResultsInComments(analyzedComments.get(commentsHash));
+    isAnalysisInProgress = false; // Reset flag
     return;
-  } else if (isPaginationScenario) {
+  } else if (isPaginationScenario || isPaginationInProgress) {
     console.log('showCommentsOverlay: Pagination scenario - forcing fresh analysis even if comments exist in cache');
+    // During pagination, don't return early even if cached results exist
+    if (analyzedComments.has(commentsHash)) {
+      console.log('showCommentsOverlay: Pagination in progress - ignoring cached results and forcing fresh analysis');
+    }
   }
   
   if (isApiCallInProgress) {
     console.log('showCommentsOverlay: API call already in progress, skipping...');
+    isAnalysisInProgress = false; // Reset flag
     return;
   }
   
@@ -242,6 +280,7 @@ function showCommentsOverlay(comments) {
     console.error('showCommentsOverlay: LLMProcessing.analyzeCommentsWithBackendOnly is not available');
     logDiv.remove();
     isApiCallInProgress = false;
+    isAnalysisInProgress = false; // Reset flag
     window.isUpdatingCommentDOM = false;
     const errorDiv = ShopeeHelpers.createErrorOverlay('LLMProcessing.analyzeCommentsWithBackendOnly is not available');
     document.body.appendChild(errorDiv);
@@ -254,10 +293,29 @@ function showCommentsOverlay(comments) {
   console.log('showCommentsOverlay: About to call LLMProcessing.analyzeCommentsWithBackendOnly');
   console.log(`showCommentsOverlay: Product name: ${productName}, Comments count: ${commentsToProcess.length}`);
   
-  window.LLMProcessing.analyzeCommentsWithBackendOnly(commentsToProcess, productName).then(result => {
-    console.log('showCommentsOverlay: LLMProcessing call completed with result:', result);
+  // FINAL VALIDATION: Check if this is still the active call
+  if (activeAnalysisCallId !== callId) {
+    console.log(`showCommentsOverlay: ABORT - Call ID mismatch. Expected: ${callId}, Active: ${activeAnalysisCallId}`);
     logDiv.remove();
     isApiCallInProgress = false;
+    isAnalysisInProgress = false;
+    window.isUpdatingCommentDOM = false;
+    return;
+  }
+  
+  window.LLMProcessing.analyzeCommentsWithBackendOnly(commentsToProcess, productName).then(result => {
+    console.log(`showCommentsOverlay: LLMProcessing call completed with result for ID: ${callId}`, result);
+    
+    // Validate this is still the active call
+    if (activeAnalysisCallId !== callId) {
+      console.log(`showCommentsOverlay: DISCARD RESULT - Call ID mismatch. Expected: ${callId}, Active: ${activeAnalysisCallId}`);
+      return;
+    }
+    
+    logDiv.remove();
+    isApiCallInProgress = false;
+    isAnalysisInProgress = false; // Reset flag
+    activeAnalysisCallId = null; // Clear active call
     
     if (result.error) {
       const errorDiv = ShopeeHelpers.createErrorOverlay(result.message);
@@ -270,32 +328,49 @@ function showCommentsOverlay(comments) {
       displayResultsInComments(result);
     }
   }).catch(error => {
-    console.error('showCommentsOverlay: Error in LLMProcessing call:', error);
+    console.error(`showCommentsOverlay: Error in LLMProcessing call for ID: ${callId}`, error);
     console.error('showCommentsOverlay: Error details:', error.stack);
+    
+    // Validate this is still the active call
+    if (activeAnalysisCallId !== callId) {
+      console.log(`showCommentsOverlay: DISCARD ERROR - Call ID mismatch. Expected: ${callId}, Active: ${activeAnalysisCallId}`);
+      return;
+    }
+    
     logDiv.remove();
     isApiCallInProgress = false;
+    isAnalysisInProgress = false; // Reset flag
+    activeAnalysisCallId = null; // Clear active call
     const errorDiv = ShopeeHelpers.createErrorOverlay('API call failed: ' + error.message);
     document.body.appendChild(errorDiv);
     setTimeout(() => {
       if (errorDiv.parentNode) errorDiv.remove();
     }, 5000);
   }).finally(() => {
-    // Always reset these flags
-    setTimeout(() => {
-      window.isUpdatingCommentDOM = false;
-    }, 200);
+    // Always reset these flags for this specific call
+    if (activeAnalysisCallId === callId) {
+      setTimeout(() => {
+        window.isUpdatingCommentDOM = false;
+        isAnalysisInProgress = false; // Ensure flag is reset
+        activeAnalysisCallId = null; // Clear active call
+        console.log(`showCommentsOverlay: Finally block completed for ID: ${callId}`);
+      }, 100);  // Reduced from 200ms to 100ms
+    } else {
+      console.log(`showCommentsOverlay: Finally block skipped - call ID mismatch. Expected: ${callId}, Active: ${activeAnalysisCallId}`);
+    }
   });
 }
 
 // Debounced function to process comments
 let isProcessingComments = false;
 let lastProcessingTime = 0;
+let lastProcessedCommentsHash = ''; // Track last processed comments to prevent duplicates
 // Reduce minimum interval for pagination scenarios
-const MIN_PROCESSING_INTERVAL = 1000; // Reduced from 3000ms to 1000ms for better pagination responsiveness
+const MIN_PROCESSING_INTERVAL = 500; // Reduced from 1000ms to 500ms for faster responsiveness
 
 function debouncedProcessComments() {
   // Prevent duplicate processing
-  if (isProcessingComments) {
+  if (isProcessingComments || isAnalysisInProgress) {
     console.log('debouncedProcessComments: Already processing, skipping...');
     return;
   }
@@ -304,9 +379,20 @@ function debouncedProcessComments() {
   
   if (apiCallTimer) clearTimeout(apiCallTimer);
   apiCallTimer = setTimeout(async () => {
-    if (isProcessingComments || isApiCallInProgress) {
+    if (isProcessingComments || isApiCallInProgress || isAnalysisInProgress) {
       console.log('debouncedProcessComments: Processing in progress, aborting timeout...');
       return;
+    }
+    
+    // Extra safety during pagination: clear all displays and caches immediately
+    if (isPaginationInProgress) {
+      console.log('debouncedProcessComments: Pagination in progress - clearing all displays and caches');
+      const existingAnalysis = document.querySelectorAll('.comment-analysis');
+      existingAnalysis.forEach(div => div.remove());
+      analyzedComments.clear();
+      window.extractedCommentsCache = [];
+      isAnalysisInProgress = false; // Reset analysis flag during pagination
+      lastProcessedCommentsHash = ''; // Reset to force fresh analysis
     }
     
     isProcessingComments = true;
@@ -329,23 +415,85 @@ function debouncedProcessComments() {
       const detailedComments = await window.CommentExtractor.extractAllComments(true); // Reset accumulated
       if (detailedComments && detailedComments.length > 0) {
         console.log(`debouncedProcessComments: Processing ${detailedComments.length} fresh detailed comments`);
+        
+        // Create hash from comment texts to prevent duplicate analysis
+        const commentTexts = detailedComments.map(c => typeof c === 'string' ? c : c.comment);
+        const newCommentsHash = commentTexts.join('|');
+        
+        // Check if these are the same comments we just processed
+        if (newCommentsHash === lastProcessedCommentsHash && !isPaginationInProgress) {
+          console.log('debouncedProcessComments: Same comments detected, skipping duplicate analysis');
+          return;
+        }
+        
+        lastProcessedCommentsHash = newCommentsHash;
         window.extractedCommentsCache = detailedComments;
+        
+        // FINAL CHECK: Ensure no concurrent analysis before calling overlay
+        if (isAnalysisInProgress || isApiCallInProgress) {
+          console.log('debouncedProcessComments: ABORT - Analysis started by another trigger, skipping overlay call');
+          return;
+        }
+        
         showCommentsOverlay(detailedComments);
       } else {
         console.log('debouncedProcessComments: No detailed comments found, falling back to simple extraction');
         const simpleComments = ShopeeHelpers.extractShopeeCommentTexts();
         console.log(`debouncedProcessComments: Got ${simpleComments.length} simple comments`);
-        showCommentsOverlay(simpleComments);
+        
+        if (simpleComments.length > 0) {
+          // Check for duplicates with simple comments too
+          const newCommentsHash = simpleComments.join('|');
+          if (newCommentsHash === lastProcessedCommentsHash && !isPaginationInProgress) {
+            console.log('debouncedProcessComments: Same simple comments detected, skipping duplicate analysis');
+            return;
+          }
+          
+          lastProcessedCommentsHash = newCommentsHash;
+          
+          // FINAL CHECK: Ensure no concurrent analysis before calling overlay
+          if (isAnalysisInProgress || isApiCallInProgress) {
+            console.log('debouncedProcessComments: ABORT - Analysis started by another trigger, skipping overlay call');
+            return;
+          }
+          
+          showCommentsOverlay(simpleComments);
+        } else {
+          console.log('debouncedProcessComments: No comments to process');
+        }
       }
     } catch (error) {
       console.error('Error extracting detailed comments:', error);
-      const simpleComments = ShopeeHelpers.extractShopeeCommentTexts();
-      console.log(`debouncedProcessComments: Fallback got ${simpleComments.length} simple comments`);
-      showCommentsOverlay(simpleComments);
+      // Only fallback if no detailed comments were already processed
+      if (!window.extractedCommentsCache || window.extractedCommentsCache.length === 0) {
+        const simpleComments = ShopeeHelpers.extractShopeeCommentTexts();
+        console.log(`debouncedProcessComments: Fallback got ${simpleComments.length} simple comments`);
+        
+        if (simpleComments.length > 0) {
+          // Check for duplicates in fallback too
+          const newCommentsHash = simpleComments.join('|');
+          if (newCommentsHash === lastProcessedCommentsHash && !isPaginationInProgress) {
+            console.log('debouncedProcessComments: Same fallback comments detected, skipping duplicate analysis');
+            return;
+          }
+          
+          lastProcessedCommentsHash = newCommentsHash;
+          
+          // FINAL CHECK: Ensure no concurrent analysis before calling overlay
+          if (isAnalysisInProgress || isApiCallInProgress) {
+            console.log('debouncedProcessComments: ABORT - Analysis started by another trigger, skipping fallback overlay call');
+            return;
+          }
+          
+          showCommentsOverlay(simpleComments);
+        }
+      } else {
+        console.log('debouncedProcessComments: Skipping fallback - detailed comments already cached');
+      }
     } finally {
       isProcessingComments = false;
     }
-  }, 1000); // Increased debounce delay to 1 second for pagination stability
+  }, 500); // Reduced debounce delay to 500ms for faster pagination responsiveness
 }
 
 // Watch for changes in the comment list container
@@ -393,13 +541,29 @@ function observeShopeeComments() {
     
     if (paginationChanged) {
       console.log('=== PAGINATION MUTATION DETECTED ===');
-      // Debounce pagination changes to prevent multiple triggers
-      if (paginationChangeTimeout) clearTimeout(paginationChangeTimeout);
-      paginationChangeTimeout = setTimeout(() => {
+      
+      // Prevent multiple pagination triggers from firing
+      if (paginationTriggerTimeout) {
+        clearTimeout(paginationTriggerTimeout);
+        console.log('Cleared existing pagination trigger timeout');
+      }
+      
+      // If pagination is already in progress, skip this trigger
+      if (isPaginationInProgress) {
+        console.log('Pagination already in progress, ignoring mutation trigger');
+        return;
+      }
+      
+      paginationTriggerTimeout = setTimeout(() => {
         console.log('Processing pagination mutation change...');
-        // Clear cache to force reprocessing
+        // Clear cache and existing displays to force reprocessing
         analyzedComments.clear();
         window.extractedCommentsCache = [];
+        lastProcessedCommentsHash = ''; // Reset duplicate detection
+        
+        // Clear any existing analysis displays immediately
+        const existingAnalysis = document.querySelectorAll('.comment-analysis');
+        existingAnalysis.forEach(div => div.remove());
         
         // Set pagination flag
         isPaginationInProgress = true;
@@ -414,6 +578,7 @@ function observeShopeeComments() {
             // Reset processing flags to ensure analysis runs
             isProcessingComments = false;
             isApiCallInProgress = false;
+            isAnalysisInProgress = false;
             lastProcessingTime = 0; // Reset timing restriction
             debouncedProcessComments();
           }
@@ -421,10 +586,11 @@ function observeShopeeComments() {
           // Reset pagination flag after processing
           setTimeout(() => {
             isPaginationInProgress = false;
+            paginationTriggerTimeout = null;
             console.log('Pagination mutation processing complete');
-          }, 2000);
-        }, 2000); // 2 second delay for content loading
-      }, 1000); // 1 second debounce
+          }, 1000);  // Reduced from 2000ms to 1000ms
+        }, 1000); // Reduced from 2000ms to 1000ms for faster response
+      }, 500); // Reduced from 1000ms to 500ms debounce
     }
   });
   
@@ -477,55 +643,77 @@ function observeShopeeComments() {
         console.log('Auto-extract enabled:', isAutoExtractEnabled);
         console.log('Is processing comments:', isProcessingComments);
         
-        // Clear any existing timeout to prevent multiple triggers
-        if (paginationClickTimeout) {
-          clearTimeout(paginationClickTimeout);
+        // Prevent multiple pagination triggers
+        if (paginationTriggerTimeout) {
+          clearTimeout(paginationTriggerTimeout);
+          console.log('Cleared existing pagination trigger timeout from click');
         }
         
-        // Clear cache immediately to force reprocessing
-        analyzedComments.clear();
-        window.extractedCommentsCache = [];
+        // If pagination is already in progress, skip this trigger
+        if (isPaginationInProgress) {
+          console.log('Pagination already in progress, ignoring click trigger');
+          return;
+        }
         
-        // Set pagination flag
-        isPaginationInProgress = true;
-        
-        // Reset pagination tracking to force detection
-        currentPaginationPage = '1';
-        
-        // Show immediate feedback to user
-        const feedbackDiv = document.createElement('div');
-        feedbackDiv.style.cssText = 'position: fixed; top: 20px; right: 20px; background: #2196F3; color: white; padding: 10px 15px; z-index: 999999; border-radius: 5px; font-family: Arial, sans-serif; font-size: 14px;';
-        feedbackDiv.textContent = '🔄 Loading new page...';
-        document.body.appendChild(feedbackDiv);
-        
-        // Use a longer delay to allow page content to load completely
-        paginationClickTimeout = setTimeout(() => {
-          feedbackDiv.remove();
-          // Force processing regardless of conditions during pagination
-          if (isAutoExtractEnabled) {
-            console.log('=== EXECUTING PAGINATION PROCESSING AFTER CLICK ===');
-            // Reset processing flags to ensure analysis runs
-            isProcessingComments = false;
-            isApiCallInProgress = false;
-            lastProcessingTime = 0; // Reset timing restriction
-            debouncedProcessComments();
-          } else {
-            console.log('Skipping processing - auto-extract disabled');
-          }
+        paginationTriggerTimeout = setTimeout(() => {
+          // Clear cache immediately to force reprocessing
+          analyzedComments.clear();
+          window.extractedCommentsCache = [];
+          lastProcessedCommentsHash = ''; // Reset duplicate detection
           
-          // Reset pagination flag after processing
+          // Clear any existing analysis displays immediately
+          const existingAnalysis = document.querySelectorAll('.comment-analysis');
+          existingAnalysis.forEach(div => div.remove());
+          
+          // Set pagination flag
+          isPaginationInProgress = true;
+          
+          // Reset pagination tracking to force detection
+          currentPaginationPage = '1';
+          
+          // Show immediate feedback to user
+          const feedbackDiv = document.createElement('div');
+          feedbackDiv.style.cssText = 'position: fixed; top: 20px; right: 20px; background: #2196F3; color: white; padding: 10px 15px; z-index: 999999; border-radius: 5px; font-family: Arial, sans-serif; font-size: 14px;';
+          feedbackDiv.textContent = '🔄 Loading new page...';
+          document.body.appendChild(feedbackDiv);
+          
+          // Use a shorter delay to allow page content to load
           setTimeout(() => {
-            isPaginationInProgress = false;
-            console.log('Pagination processing complete');
-          }, 2000);
-        }, 3000); // Increased to 3 seconds for better stability
+            feedbackDiv.remove();
+            // Force processing regardless of conditions during pagination
+            if (isAutoExtractEnabled) {
+              console.log('=== EXECUTING PAGINATION PROCESSING AFTER CLICK ===');
+              // Reset processing flags to ensure analysis runs
+              isProcessingComments = false;
+              isApiCallInProgress = false;
+              isAnalysisInProgress = false;
+              lastProcessingTime = 0; // Reset timing restriction
+              debouncedProcessComments();
+            } else {
+              console.log('Skipping processing - auto-extract disabled');
+            }
+            
+            // Reset pagination flag after processing
+            setTimeout(() => {
+              isPaginationInProgress = false;
+              paginationTriggerTimeout = null;
+              console.log('Pagination click processing complete');
+            }, 1000);  // Reduced from 2000ms to 1000ms
+          }, 1500); // Reduced from 3000ms to 1500ms for faster response
+        }, 200); // Short initial delay to prevent immediate duplicate triggers
       }
     }, true);
   }
 
   const commentObserver = new MutationObserver((mutations) => {
-    // Skip if we're updating DOM or API call is in progress
-    if (window.isUpdatingCommentDOM || isApiCallInProgress || isProcessingComments) return;
+    // Skip if we're updating DOM, API call is in progress, or pagination is happening
+    if (window.isUpdatingCommentDOM || isApiCallInProgress || isProcessingComments || isPaginationInProgress || isAnalysisInProgress) return;
+    
+    // Extra protection: if pagination trigger is active, skip comment observer
+    if (paginationTriggerTimeout) {
+      console.log('Comment observer: Pagination trigger active, skipping to prevent duplicate analysis');
+      return;
+    }
     
     // Check if comments were actually added or changed (not our analysis divs)
     let commentsChanged = false;
@@ -550,21 +738,27 @@ function observeShopeeComments() {
     }
     
     if (commentsChanged) {
-      console.log('New comments detected in DOM');
+      console.log('Comment observer: New comments detected in DOM');
       debouncedProcessComments();
     }
   });
 
   commentObserver.observe(commentsSection, { childList: true, subtree: true });
 
-  const comments = ShopeeHelpers.extractShopeeCommentTexts();
-  if (comments && comments.length > 0) {
-    window.CommentExtractor.extractAllComments(false).then(detailedComments => {
-      showCommentsOverlay(detailedComments.length > 0 ? detailedComments : comments);
-    }).catch(error => {
-      console.error('Error extracting detailed comments:', error);
-      showCommentsOverlay(comments);
-    });
+  // Only trigger initial analysis if not during pagination and auto-extract is enabled
+  if (!isPaginationInProgress && !paginationTriggerTimeout && !isAnalysisInProgress) {
+    const comments = ShopeeHelpers.extractShopeeCommentTexts();
+    if (comments && comments.length > 0) {
+      console.log('Initial setup: Triggering analysis for existing comments');
+      window.CommentExtractor.extractAllComments(false).then(detailedComments => {
+        showCommentsOverlay(detailedComments.length > 0 ? detailedComments : comments);
+      }).catch(error => {
+        console.error('Error extracting detailed comments:', error);
+        showCommentsOverlay(comments);
+      });
+    }
+  } else {
+    console.log('Initial setup: Skipping analysis - pagination in progress or analysis already active');
   }
 }
 
@@ -617,33 +811,51 @@ function checkUrlChange() {
     const now = Date.now();
     if (newHash.match(/[0-9]/) && isAutoExtractEnabled && !isProcessingComments) {
       console.log('Processing hash change for pagination');
-      // Clear cache and reprocess comments
-      analyzedComments.clear();
-      window.extractedCommentsCache = [];
       
-      // Set pagination flag
-      isPaginationInProgress = true;
+      // Prevent multiple pagination triggers
+      if (paginationTriggerTimeout) {
+        clearTimeout(paginationTriggerTimeout);
+        console.log('Cleared existing pagination trigger timeout from hash change');
+      }
       
-      setTimeout(() => {
-        console.log('Executing debouncedProcessComments after hash change');
-        // Reset processing flags to ensure analysis runs
-        isProcessingComments = false;
-        isApiCallInProgress = false;
-        lastProcessingTime = 0; // Reset timing restriction
-        debouncedProcessComments();
+      // If pagination is already in progress, skip this trigger
+      if (isPaginationInProgress) {
+        console.log('Pagination already in progress, ignoring hash change trigger');
+        return;
+      }
+      
+      paginationTriggerTimeout = setTimeout(() => {
+        // Clear cache and reprocess comments
+        analyzedComments.clear();
+        window.extractedCommentsCache = [];
+        lastProcessedCommentsHash = ''; // Reset duplicate detection
         
-        // Reset pagination flag after processing
+        // Clear any existing analysis displays immediately
+        const existingAnalysis = document.querySelectorAll('.comment-analysis');
+        existingAnalysis.forEach(div => div.remove());
+        console.log('Cleared analysis displays during hash change pagination');
+        
+        // Set pagination flag
+        isPaginationInProgress = true;
+        
         setTimeout(() => {
-          isPaginationInProgress = false;
-          console.log('Hash change processing complete');
-        }, 2000);
-      }, 2000); // Increased delay to avoid conflicts
+          console.log('Executing debouncedProcessComments after hash change');
+          // Reset processing flags to ensure analysis runs
+          isProcessingComments = false;
+          isApiCallInProgress = false;
+          isAnalysisInProgress = false;
+          lastProcessingTime = 0; // Reset timing restriction
+          debouncedProcessComments();
+          
+          // Reset pagination flag after processing
+          setTimeout(() => {
+            isPaginationInProgress = false;
+            paginationTriggerTimeout = null;
+            console.log('Hash change processing complete');
+          }, 1000);
+        }, 1000);
+      }, 300); // Short delay to prevent immediate duplicate triggers
     }
-  }
-  
-  // Reduce frequency of pagination checks to avoid conflicts
-  if (!isProcessingComments && (Date.now() - lastPaginationCheckTime > 3000)) {
-    checkPaginationChange();
   }
 }
 
@@ -690,6 +902,11 @@ function checkPaginationChange() {
         analyzedComments.clear();
         window.extractedCommentsCache = [];
         
+        // Clear any existing analysis displays immediately
+        const existingAnalysis = document.querySelectorAll('.comment-analysis');
+        existingAnalysis.forEach(div => div.remove());
+        console.log('Cleared analysis displays during page number change');
+        
         // Set pagination flag
         isPaginationInProgress = true;
         
@@ -703,13 +920,31 @@ function checkPaginationChange() {
         setTimeout(() => {
           feedbackDiv.remove();
           // Force processing during pagination change regardless of timing restrictions
-          if (isAutoExtractEnabled) {
-            console.log('Processing comments after pagination page number change');
-            // Reset processing flags to ensure analysis runs
-            isProcessingComments = false;
-            isApiCallInProgress = false;
-            lastProcessingTime = 0; // Reset timing restriction
-            debouncedProcessComments();
+          // But only if no other pagination trigger is active
+          if (isAutoExtractEnabled && !paginationTriggerTimeout) {
+            console.log('checkPaginationChange: Processing comments after pagination page number change');
+            
+            // Prevent multiple pagination triggers
+            if (paginationTriggerTimeout) {
+              clearTimeout(paginationTriggerTimeout);
+              console.log('checkPaginationChange: Cleared existing pagination trigger timeout');
+            }
+            
+            paginationTriggerTimeout = setTimeout(() => {
+              // Reset processing flags to ensure analysis runs
+              isProcessingComments = false;
+              isApiCallInProgress = false;
+              isAnalysisInProgress = false;
+              lastProcessingTime = 0; // Reset timing restriction
+              debouncedProcessComments();
+              
+              // Reset coordination after processing
+              setTimeout(() => {
+                paginationTriggerTimeout = null;
+              }, 1000);
+            }, 200);
+          } else {
+            console.log('checkPaginationChange: Skipping processing - auto-extract disabled or pagination trigger active');
           }
           
           // Reset pagination flag after processing
@@ -726,7 +961,7 @@ function checkPaginationChange() {
 }
 
 // Poll for URL and pagination changes with reasonable frequency  
-setInterval(checkUrlChange, 2000); // Reduced frequency from 1000ms to 2000ms
+setInterval(checkUrlChange, 1500); // Reduced frequency from 2000ms to 1500ms
 
 // Additional periodic check for unprocessed comments (backup detection) - much less aggressive
 let lastPeriodicCheckTime = 0;
@@ -769,9 +1004,17 @@ function waitForCommentsSection() {
       observeShopeeComments();
       
       // Auto-extract comments when section is found if setting is enabled
-      if (isAutoExtractEnabled) {
+      // Only if not already in progress to prevent double analysis
+      if (isAutoExtractEnabled && !isAnalysisInProgress && !isPaginationInProgress && !paginationTriggerTimeout) {
+        console.log('waitForCommentsSection: Auto-extract enabled, scheduling analysis');
         // Give a moment for the page to fully render
-        setTimeout(() => debouncedProcessComments(), 500);
+        setTimeout(() => {
+          if (!isAnalysisInProgress && !isPaginationInProgress) {
+            debouncedProcessComments();
+          }
+        }, 500);
+      } else {
+        console.log('waitForCommentsSection: Skipping auto-extract - analysis already in progress or pagination active');
       }
       
       observer.disconnect();
@@ -786,8 +1029,12 @@ function waitForCommentsSection() {
     observeShopeeComments();
     
     // Auto-extract comments if section is already on the page and setting is enabled
-    if (isAutoExtractEnabled) {
+    // Only if not already in progress to prevent double analysis  
+    if (isAutoExtractEnabled && !isAnalysisInProgress && !isPaginationInProgress && !paginationTriggerTimeout) {
+      console.log('waitForCommentsSection: Section exists, auto-extract enabled, triggering analysis');
       debouncedProcessComments();
+    } else {
+      console.log('waitForCommentsSection: Skipping auto-extract - analysis already in progress or pagination active');
     }
     
     return;
