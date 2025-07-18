@@ -15,27 +15,62 @@ https://github.com/user-attachments/assets/c8724055-4e96-4b16-850f-6e7b35fde23e
   <a href="https://www.canva.com/design/DAGtV-AFfiI/ZQ5Cc2ztLegeqHOW7wkb_g/view?utm_content=DAGtV-AFfiI&utm_campaign=designshare&utm_medium=link2&utm_source=uniquelinks&utlId=hc919ac8010">Slides Presentation</a>
 </p>
 
-**Spotcheck** is built to solve the problem of misleading reviews in online shopping. By combining a browser extension, LLM-powered backend, and a hybrid vector-relational database (Supabase), Spotcheck delivers real-time verdicts such as:
+**SpotCheck** is built to solve the problem of misleading reviews in online shopping. By combining a browser extension, LLM-powered backend, and a hybrid vector-relational database (Supabase), SpotCheck delivers real-time verdicts such as:
 
-- ✅ Genuine  
-- ❌ Suspicious  
+- ✅ Real  
+- ❌ Fake  
 - ⚠️ Irrelevant  
 
-## 📌 How it works
+### How does it work?
 1. **User visits** a Shopee product page.  
 2. **Extension scrapes** all reviews.  
 3. **Backend analyzes** each review using LLMs and past data.  
-4. **Verdicts and explanations** are shown inline.  
-5. **User shops** with more confidence and clarity.
+4. **Verdicts and explanations** are shown inline.
+6. **User shops** with more confidence and clarity.
+
+
+## 🎯 Types of Fake Reviews Detected
+
+#### 1. **Paid or Sponsored Reviews**
+
+* Overly positive language with little detail
+* Keywords like “cheap”, “must buy”, “premium” spammed across unrelated products
+* Appears across multiple users with only slight variations
+
+#### 2. **Copy-Paste Spam**
+
+* Same comment posted by different users
+* Same user posts same/similar comment across multiple products
+* Often used in review farms or bots
+
+#### 3. **Template-Based Reviews**
+
+* Generic structure like:
+  *“Item arrived fast. Quality is good. Will buy again.”*
+* Detected using semantic similarity (MiniLM + vector search)
+
+#### 4. **Bot-Like Activity**
+
+* Reviewer posts dozens of reviews in a short time
+* Repeated review structure regardless of product
+* Same review length, tone, and timing pattern
+
+#### 5. **Irrelevant Comments**
+
+* Comments that don’t match product context (e.g., review for a phone case saying “delicious and fresh”)
+* Detected via LLM vibe-checking and embedding mismatch
+
 
 ## 🧭 Scope
 
 - 🛒 Shopee as e-commerce platform
-- 📌 Focused on one store per in-stance
+- 📌 Focused on shirts category for data collection
 - 🐧 Linux-based local installation
+- 🗝️ Optional Google GenAI API key deployment for easier deployment
+- ☁️ Supabase Cloud for easy access to database
 
-
-## 🧱 Solution Architecture
+## 🔧 Technical Execution
+### Solution Architecture
 ```mermaid
 ---
 config:
@@ -85,11 +120,12 @@ flowchart TD
 
 
 
-### ⚙️ Tech Stack
+### Tech Stack
 
 | Component         | Description                                      |
 |------------------|--------------------------------------------------|
 | **Browser Extension** | Scrapes and displays verdicts on Shopee          |
+| **HTML/CSS/JS**           | Chromium-based browser extension development    |
 | **FastAPI**          | Backend server managing LLM logic                |
 | **MiniLM (Local)**   | Embedding generation and semantic analysis       |
 | **Supabase**         | Relational + vector database backend             |
@@ -97,7 +133,7 @@ flowchart TD
 | **Python**           | Data pipeline, inference, and backend logic     |
 
 
-### 🔍 Browser Extension
+### Browser Extension
 
 - **Scrapes data** from Shopee product pages:
   - Username  
@@ -107,60 +143,107 @@ flowchart TD
   - Product name  
   - Product URL  
 
-- **Sends** the data to the backend server.
+- **Sends** the data to the backend server for the analysis.
 - **Displays** final verdicts and explanations directly on the page.
 
 
+### 🔍 Backend Analysis
 
-### 🧠 Backend – LLM Inference & Decision Engine
+#### PostgreSQL (Relational DB)
 
-Three-stage LLM pipeline:
+  * Stores metadata: username, timestamp, product info, etc.
+  * Hosts external review datasets (e.g., [Kaggle 10k reviews](https://www.kaggle.com/datasets/shymammoth/shopee-reviews/code))
+  * Enables behavior-based analysis using SQL queries
 
-| LLM | Task |
-|-----|------|
-| **LLM 1** | Check if the review is genuine, suspicious, or unrelevant |
-| **LLM 2** | Analyze suspicious review with behavioral and semantic analysis|
-| **LLM 3** | Determine if suspicious review is genuine or fake based on analysis  |
+#### pgvector (Vector DB)
 
-### 🗃️ Supabase (Data Layer)
-
-- **PostgreSQL (Relational DB)**:
-  - Stores review metadata (user, time, product info)
-  - Hosts external datasets (e.g., Kaggle 100k reviews)
-  - Enables behavioral tracking with SQL
-
-- **pgvector (Vector DB)**:
-  - Stores comment embeddings
-  - Powers semantic similarity (RAG-like behavior)
-  - Helps detect duplicate or related fake reviews
+  * Stores sentence embeddings of review comments
+  * Enables semantic similarity search (RAG-style logic)
+  * Helps detect reused or templated comments across users/products
 
 
 
-### 🔁 Continuous Improvement
+### 📈 Statistical Analysis Pipeline
 
-- New reviews and feedback are **logged for retraining**
-- External datasets are **used to fine-tune accuracy**
-- LLMs are **self-hosted locally** for fast and private inference
+#### Semantic Analysis
 
-## 🚀 Installation
-### Cloud Deploy (Minimal)
+* Embeds each review comment using `all-MiniLM-L6-v2`.
+* Performs vector similarity search via `pgvector`.
+* Returns the **top 5 most similar comments** and similarity scores.
+* Purpose: Detect bot/paid reviews that are **semantically similar** to known fake templates.
+
+#### Behavior Analysis
+
+Runs multiple SQL queries to extract behavioral patterns:
+
+* Repetition: Has this user posted the **same comment** before?
+* Duplication: How many **different users** posted this same comment?
+* Spam: Is the comment reused **across multiple products**?
+* Activity: How frequently does this user post reviews?
+* Length: How long is the comment (character count)?
+
+
+### 🧠 LLM Decision Pipeline
+
+| Stage     | Description                                                                  |
+| --------- | ---------------------------------------------------------------------------- |
+| **LLM 1** | Classifies review as **Genuine / Suspicious / Irrelevant** (based on "vibe") |
+| **LLM 2** | Further evaluates *Suspicious* reviews using semantic + behavioral evidence  |
+
+> Suspicious reviews flagged by LLM 1 are sent through both semantic + behavioral analysis. Verdicts are generated based on aggregated insights.
+
+> If Gemini API key is not provided, the system defaults to the local Ollama model.
+
+### Continuous Learning
+
+* 📥 **Live feedback loop**: New reviews are stored for retraining purposes.
+* 📊 **Fine-tuning**: External datasets (e.g. Kaggle) used to improve classification accuracy.
+* 🧹 **Preprocessing**: Comments are cleaned (emoji stripping, whitespace removal) to improve vector quality and matching performance.
+
+
+
+
+## 📥 Deployment
+
+### Cloud Deploy (Minimal Setup)
+
 #### Requirements
-- Python 3.12.3 - backend server
-- Chromium-based browser - for extension
+
+* **Python 3.12.3** – for running the backend server
+* **Chromium-based browser** – required for the extension (e.g., Chrome, Brave)
+* **Google Gemini API Key** – [Get your API key here](https://aistudio.google.com/app/apikey)
 
 
-### Local Deploy (Recommended)
-#### Requirements
-- Ollama - to run LLM locally
-- GPU with 8GB VRAM (preferably) - run LLM locally
-- Supabase - relational DB + vector DB
-- Python 3.12.3 - backend server
-- Chromium browser - for extension
+#### 1. Backend Setup
 
-#### Deployment
+Clone the repository and install dependencies:
+
+```bash
+git clone https://github.com/your-repo-name/SpotCheck.git
+cd SpotCheck
+pip install -r requirements.txt
+```
+
+Run the backend server:
+
+```bash
+python ./backend/backend.py
+```
+
+#### 2. Install Browser Extension
+
+1. Open your Chromium browser
+2. Navigate to: `chrome://extensions/`
+3. Enable **Developer Mode** (top-right toggle)
+4. Click **"Load unpacked"**
+5. Select the `src/` folder from the cloned repo
+6. Click the extension in the browser
+7. Put Google Gemini API key in the browser popup
+
+### Local Deployment (Recommended)
 Installation steps included in [INSTALL.md](https://github.com/tzhenyu/SpotCheck/blob/main/INSTALL.md)
 
-## Performance
+## 🏎️ Performance
 | Run        | `analyze_comments` (Local LLM) | `analyze_comments` (Gemini LLM) |
 | ---------- | ------------------------------ | ------------------------------- |
 | 1          | 4.08                           | 14.57                           |
@@ -170,7 +253,14 @@ Installation steps included in [INSTALL.md](https://github.com/tzhenyu/SpotCheck
 | 5          | 11.15                          | 11.18                           |
 | **Avg** | **7.14s**                      | **18.38s**                      |
 
+
 Local LLM is **~61.14%** faster than Gemini LLM on average.
+
+## ❓ Why not using agentic tools?
+We've tried using LangChain Agent to allow local deployed LLM to decide which analysis to perform to determine if the review is real or fake. It took around a minute to process due to its chain of thoughts. We didn't try using Gemini LLM on LangChain Agent as we are concerned with the network latency. But hey, at least we tried :')
+
+## ✅ Real results
+Work in progress gang
 
 ## 🙌 Credits
 Brought to you by team **TARUMT NOT TARC**
