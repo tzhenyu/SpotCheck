@@ -1,7 +1,12 @@
 <p align="center">
 <img src="https://i.ibb.co/przbt9cW/57bda6ed-b416-4191-9d6e-815d743b13ab-1.jpg" alt="logo" border="0"width="180" height="200">
 </p>
+
 <p align="center">Fake Review Detection System for Shopee.</p>
+
+<p align="center">
+  <a href="https://www.canva.com/design/DAGtV-AFfiI/ZQ5Cc2ztLegeqHOW7wkb_g/view?utm_content=DAGtV-AFfiI&utm_campaign=designshare&utm_medium=link2&utm_source=uniquelinks&utlId=hc919ac8010">Slides Presentation</a>
+</p>
 
 **Spotcheck** is built to solve the problem of misleading reviews in online shopping. By combining a browser extension, LLM-powered backend, and a hybrid vector-relational database (Supabase), Spotcheck delivers real-time verdicts such as:
 
