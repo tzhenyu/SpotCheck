@@ -131,8 +131,6 @@ Three-stage LLM pipeline:
 - LLMs are **self-hosted locally** for fast and private inference
 
 ## 🚀 Installation
-
-> Full setup guide refer to [INSTALL.md](https://github.com/tzhenyu/SpotCheck/blob/main/INSTALL.md)
 ### Cloud Deploy (Minimal)
 #### Requirements
 - Python 3.12.3 - backend server
@@ -147,6 +145,8 @@ Three-stage LLM pipeline:
 - Python 3.12.3 - backend server
 - Chromium browser - for extension
 
+#### Deployment
+Installation steps included in [INSTALL.md](https://github.com/tzhenyu/SpotCheck/blob/main/INSTALL.md)
 
 ## Performance
 | Run        | `analyze_comments` (Local LLM) | `analyze_comments` (Gemini LLM) |

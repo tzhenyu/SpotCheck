@@ -127,14 +127,16 @@ Step 5. Navigate to `src` folder/directory on the file explorer.
 Run the commands below following the order in terminal.
 
 ```bash
+# kill running SpotCheck processes
+sudo pkill -f "python.*backend.py" && sudo pkill -f "/home/SpotCheck_venv/bin/python"
 
-# Remove Ollama
-ollama stop llama3:instruct
+# Remove Ollama model and uninstall Ollama (for recommended setup)
+ollama stop llama3:instruct && ollama rm llama3:instruct && sudo apt remove ollama
 
 # Removes python packages installed
 python3 -m uninstall -r /home/SpotCheck/requirements.txt
 
 # Removes the SpotCheck folder and contents
-rm -r /home/SpotCheck /home/SpotCheck-venv
+rm -r /home/SpotCheck /home/SpotCheck_venv
 
 ```
