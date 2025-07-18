@@ -795,9 +795,9 @@ function observeShopeeComments() {
           
           // Show immediate feedback to user
           const feedbackDiv = document.createElement('div');
-          feedbackDiv.style.cssText = 'position: fixed; top: 20px; right: 20px; background: #2196F3; color: white; padding: 10px 15px; z-index: 999999; border-radius: 5px; font-family: Arial, sans-serif; font-size: 14px;';
-          feedbackDiv.textContent = '🔄 Loading new page...';
-          document.body.appendChild(feedbackDiv);
+          // feedbackDiv.style.cssText = 'position: fixed; top: 20px; right: 20px; background: #2196F3; color: white; padding: 10px 15px; z-index: 999999; border-radius: 5px; font-family: Arial, sans-serif; font-size: 14px;';
+          // feedbackDiv.textContent = '🔄 Loading new page...';
+          // document.body.appendChild(feedbackDiv);
           
           // Use a shorter delay to allow page content to load
           setTimeout(() => {
