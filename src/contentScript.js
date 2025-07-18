@@ -12,6 +12,97 @@ let isAnalysisInProgress = false; // Add flag to prevent double analysis
 let paginationTriggerTimeout = null; // Prevent multiple pagination triggers
 let activeAnalysisCallId = null; // Track active analysis to prevent duplicates
 
+// PAGE-LEVEL ANALYSIS CACHE - Persistent across navigation
+let pageAnalysisCache = new Map(); // Key: pageIdentifier, Value: { results, timestamp, commentsHash }
+const CACHE_EXPIRY_MS = 24 * 60 * 60 * 1000; // 24 hours cache expiry
+const MAX_CACHE_SIZE = 100; // Maximum number of cached pages
+
+// Generate unique page identifier for caching
+function generatePageIdentifier() {
+  const url = window.location.href;
+  const pathname = window.location.pathname;
+  const search = window.location.search;
+  
+  // Create identifier from URL without hash (to handle pagination)
+  const baseUrl = url.split('#')[0];
+  
+  // For Shopee product pages, use product ID from URL
+  const productIdMatch = pathname.match(/i\.(\d+)\.(\d+)/);
+  if (productIdMatch) {
+    return `shopee_product_${productIdMatch[1]}_${productIdMatch[2]}`;
+  }
+  
+  // Fallback to base URL hash
+  return btoa(baseUrl).replace(/[^a-zA-Z0-9]/g, '').substr(0, 50);
+}
+
+// Check if page has cached analysis results
+function getCachedAnalysis() {
+  const pageId = generatePageIdentifier();
+  const cached = pageAnalysisCache.get(pageId);
+  
+  if (!cached) return null;
+  
+  // Check if cache is expired
+  const now = Date.now();
+  if (now - cached.timestamp > CACHE_EXPIRY_MS) {
+    pageAnalysisCache.delete(pageId);
+    console.log(`getCachedAnalysis: Cache expired for page ${pageId}`);
+    return null;
+  }
+  
+  // Verify current comments match cached comments
+  const currentComments = ShopeeHelpers ? ShopeeHelpers.extractShopeeCommentTexts() : [];
+  const currentCommentsHash = currentComments.join('|');
+  
+  if (cached.commentsHash === currentCommentsHash) {
+    console.log(`getCachedAnalysis: Found valid cache for page ${pageId}`);
+    return cached.results;
+  } else {
+    console.log(`getCachedAnalysis: Comments changed for page ${pageId}, invalidating cache`);
+    pageAnalysisCache.delete(pageId);
+    return null;
+  }
+}
+
+// Save analysis results to page cache
+function saveAnalysisToCache(results, commentsHash) {
+  const pageId = generatePageIdentifier();
+  
+  // Manage cache size - remove oldest entries if needed
+  if (pageAnalysisCache.size >= MAX_CACHE_SIZE) {
+    const oldestKey = pageAnalysisCache.keys().next().value;
+    pageAnalysisCache.delete(oldestKey);
+    console.log(`saveAnalysisToCache: Removed oldest cache entry ${oldestKey}`);
+  }
+  
+  pageAnalysisCache.set(pageId, {
+    results: results,
+    timestamp: Date.now(),
+    commentsHash: commentsHash
+  });
+  
+  console.log(`saveAnalysisToCache: Saved analysis for page ${pageId} (${pageAnalysisCache.size}/${MAX_CACHE_SIZE} cached pages)`);
+}
+
+// Clear expired cache entries
+function cleanupCache() {
+  const now = Date.now();
+  const expiredKeys = [];
+  
+  for (const [key, value] of pageAnalysisCache.entries()) {
+    if (now - value.timestamp > CACHE_EXPIRY_MS) {
+      expiredKeys.push(key);
+    }
+  }
+  
+  expiredKeys.forEach(key => pageAnalysisCache.delete(key));
+  
+  if (expiredKeys.length > 0) {
+    console.log(`cleanupCache: Removed ${expiredKeys.length} expired cache entries`);
+  }
+}
+
 // Flag to track if content script is fully initialized
 let isContentScriptInitialized = false;
 window.extractedCommentsCache = [];
@@ -192,6 +283,34 @@ function showCommentsOverlay(comments) {
     return;
   }
   
+  // CHECK PAGE-LEVEL CACHE FIRST - Skip during pagination to ensure fresh display
+  if (!isPaginationInProgress) {
+    const cachedResults = getCachedAnalysis();
+    if (cachedResults) {
+      console.log('showCommentsOverlay: Using cached analysis results for this page');
+      
+      // Show cache indicator to user
+      const cacheIndicator = document.createElement('div');
+      cacheIndicator.style.cssText = 'position: fixed; top: 20px; left: 20px; background: #4CAF50; color: white; padding: 8px 12px; z-index: 999999; border-radius: 5px; font-family: Arial, sans-serif; font-size: 13px; box-shadow: 0 2px 5px rgba(0,0,0,0.2);';
+      cacheIndicator.textContent = '💾 Using cached analysis';
+      document.body.appendChild(cacheIndicator);
+      
+      // Remove indicator after 3 seconds
+      setTimeout(() => {
+        if (cacheIndicator.parentNode) {
+          cacheIndicator.remove();
+        }
+      }, 3000);
+      
+      displayResultsInComments(cachedResults);
+      return;
+    } else {
+      console.log('showCommentsOverlay: No valid cache found, proceeding with fresh analysis');
+    }
+  } else {
+    console.log('showCommentsOverlay: Pagination in progress, skipping cache check');
+  }
+  
   // Set the analysis flag immediately to prevent concurrent calls
   isAnalysisInProgress = true;
   
@@ -326,6 +445,9 @@ function showCommentsOverlay(comments) {
     } else {
       analyzedComments.set(commentsHash, result);
       displayResultsInComments(result);
+      
+      // Save to page cache
+      saveAnalysisToCache(result, commentsHash);
     }
   }).catch(error => {
     console.error(`showCommentsOverlay: Error in LLMProcessing call for ID: ${callId}`, error);
@@ -786,11 +908,14 @@ function checkUrlChange() {
       });
     }
     
-    // Reset tracking when URL changes
+    // Reset session tracking when URL changes (but keep page cache)
     analyzedComments.clear();
     window.extractedCommentsCache = [];
     isApiCallInProgress = false;
     if (apiCallTimer) clearTimeout(apiCallTimer);
+    
+    // Clean up expired cache entries periodically
+    cleanupCache();
     
     // Notify popup about URL change
     chrome.runtime.sendMessage({
@@ -1400,3 +1525,20 @@ initAutoExtractOnLoad();
 
 // Start the watcher
 waitForCommentsSection();
+
+// Periodic cache cleanup every 30 minutes
+setInterval(() => {
+  cleanupCache();
+}, 30 * 60 * 1000);
+
+// Display cache status in console
+setInterval(() => {
+  if (pageAnalysisCache.size > 0) {
+    console.log(`📋 Page Analysis Cache: ${pageAnalysisCache.size}/${MAX_CACHE_SIZE} pages cached`);
+    const cacheEntries = Array.from(pageAnalysisCache.entries());
+    cacheEntries.forEach(([pageId, data]) => {
+      const age = Math.round((Date.now() - data.timestamp) / 1000 / 60); // minutes
+      console.log(`  - ${pageId}: ${age}min old, ${data.commentsHash.split('|').length} comments`);
+    });
+  }
+}, 2 * 60 * 1000); // Every 2 minutes
