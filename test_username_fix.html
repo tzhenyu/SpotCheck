@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Test Username Fix</title>
+</head>
+<body>
+    <h1>Test Username Fix</h1>
+    <button onclick="testUsernamePassing()">Test Username Passing</button>
+    <div id="result"></div>
+
+    <script>
+        async function testUsernamePassing() {
+            console.log("Testing username passing to backend...");
+            
+            // Simulate comment data with usernames (like what extractDetailedCommentData returns)
+            const commentsWithMetadata = [
+                {
+                    comment: "This review seems suspicious and repetitive",
+                    username: "testuser123",
+                    timestamp: "2025-01-15 10:30",
+                    starRating: 5
+                },
+                {
+                    comment: "This review also seems suspicious and repetitive", 
+                    username: "shopper456", 
+                    timestamp: "2025-01-15 11:45",
+                    starRating: 5
+                }
+            ];
+            
+            try {
+                // Test the analyze endpoint directly with metadata
+                const response = await fetch("http://localhost:8001/analyze", {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json"
+                    },
+                    body: JSON.stringify({
+                        comments: commentsWithMetadata.map(c => c.comment),
+                        metadata: commentsWithMetadata.map(c => ({
+                            comment: c.comment,
+                            username: c.username,
+                            rating: c.starRating,
+                            source: "test",
+                            product: "Test Product",
+                            timestamp: c.timestamp
+                        })),
+                        product: "Test Product"
+                    })
+                });
+                
+                console.log("Response status:", response.status);
+                
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    throw new Error(`HTTP ${response.status}: ${errorText}`);
+                }
+                
+                const data = await response.json();
+                console.log("Response data:", data);
+                
+                // Check if usernames are included in suspicious comments
+                const resultDiv = document.getElementById('result');
+                let resultHtml = '<h3>Test Results:</h3>';
+                
+                if (data.suspicious_comments && data.suspicious_comments.length > 0) {
+                    resultHtml += '<h4>Suspicious Comments:</h4>';
+                    data.suspicious_comments.forEach((suspiciousComment, i) => {
+                        resultHtml += `<p><strong>Comment ${i+1}:</strong> ${suspiciousComment.comment}</p>`;
+                        resultHtml += `<p><strong>Username:</strong> ${suspiciousComment.username || 'NO USERNAME FOUND!'}</p>`;
+                        resultHtml += `<p><strong>Behavioral Evidence:</strong> ${JSON.stringify(suspiciousComment.behavioral)}</p>`;
+                        resultHtml += '<hr>';
+                    });
+                } else {
+                    resultHtml += '<p>No suspicious comments found in this test.</p>';
+                }
+                
+                resultHtml += '<h4>All Results:</h4>';
+                data.results.forEach((result, i) => {
+                    resultHtml += `<p><strong>Comment ${i+1}:</strong> ${result.comment}</p>`;
+                    resultHtml += `<p><strong>Is Fake:</strong> ${result.is_fake ? 'YES' : 'NO'}</p>`;
+                    resultHtml += `<p><strong>Explanation:</strong> ${result.explanation}</p>`;
+                    resultHtml += '<hr>';
+                });
+                
+                resultDiv.innerHTML = resultHtml;
+                
+            } catch (error) {
+                console.error("Test error:", error);
+                document.getElementById('result').innerHTML = `<h3>Error:</h3><p style="color: red;">${error.message}</p>`;
+            }
+        }
+    </script>
+</body>
+</html>

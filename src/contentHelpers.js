@@ -172,7 +172,9 @@ window.ShopeeHelpers = {
   extractDetailedCommentData() {
     // Use CommentExtractor if available, otherwise fallback to basic extraction
     if (window.CommentExtractor) {
-      return window.CommentExtractor.extractAllComments();
+      // Call the synchronous current page extraction
+      const currentPageComments = window.CommentExtractor.extractCurrentPageComments();
+      return currentPageComments;
     } else {
       // Fallback to basic comment extraction
       const comments = this.extractShopeeCommentTexts();

@@ -438,6 +438,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 // Export functions to global scope for use in other scripts
 window.CommentExtractor = {
   extractAllComments,
+  extractCurrentPageComments,
   waitForComments,
   extractStarRating,
   extractPageMetadata,

@@ -53,9 +53,18 @@ DB_CONFIG = {
 }
 table_name = os.getenv("TABLE_NAME")
 llm_model = os.getenv("LLM_MODEL")
+
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# Log critical configuration at startup
+logger.info(f"Database table name configured: {table_name}")
+logger.info(f"LLM model configured: {llm_model}")
+if not table_name:
+    logger.error("TABLE_NAME environment variable is not set!")
+else:
+    logger.info(f"TABLE_NAME environment variable is properly set to: {table_name}")
 
 
 # Create data models
@@ -220,14 +229,19 @@ async def analyze_comments(data: CommentData):
         logger.info("No Gemini API key provided for analysis")
         
     # Extract usernames if available
+    logger.info(f"data.metadata type: {type(data.metadata)}")
+    logger.info(f"data.metadata content: {data.metadata}")
     usernames = [item.get("username") if isinstance(item, dict) else None for item in getattr(data, "metadata", [])[:6]] if data.metadata else [None]*len(comments_to_process)
+    logger.info(f"Extracted usernames: {usernames}")
     logger.info(f"Batch analyzing {len(comments_to_process)} comments")
     results = await analyze_comments_batch_ollama(comments_to_process, prompt=prompt, product=product, gemini_api_key=gemini_api_key)
     logger.info(f"Completed analysis of {len(results)} comments")
     for i, username in enumerate(usernames):
         if i < len(results):
             results[i]["username"] = username
+    logger.info(f"Analysis results before suspicious comment analysis: {json.dumps(results, default=str, indent=2)}")
     suspicious_comments = analyze_suspicious_comment(results)
+    logger.info(f"suspicious_comments input: {json.dumps(suspicious_comments, default=str)}")
     suspicious_comments_result = determine_review_genuinty(suspicious_comments)
     # Update suspicious_comments with verdict and explanation from suspicious_comments_result
     for idx, item in enumerate(suspicious_comments):
@@ -433,12 +447,15 @@ def semantic_search_postgres(query: str, top_n: int):
 ########################## SEMANTIC FUNCTION
 
 def analyze_suspicious_comment(analysis_results: List[Dict]) -> List[Dict]:
+    logger.info(f"analyze_suspicious_comment called with {len(analysis_results)} results")
     suspicious_comments = []
     for idx, result in enumerate(analysis_results):
         explanation = result.get("explanation", "")
+        logger.info(f"Processing result {idx}: explanation='{explanation[:50]}...', starts_with_suspicious={explanation.lower().startswith('suspicious')}")
         if explanation.lower().startswith("suspicious"):
             verdict, sep, reason = explanation.partition("- ")
             username = result.get("username")
+            logger.info(f"Found suspicious comment {idx}: username='{username}', comment='{result.get('comment', '')[:30]}...'")
             # Try to get username from metadata if not present
             if not username and "metadata" in result and isinstance(result["metadata"], dict):
                 username = result["metadata"].get("username")
@@ -456,15 +473,21 @@ def analyze_suspicious_comment(analysis_results: List[Dict]) -> List[Dict]:
             if not username:
                 logger.warning(f"No username found for suspicious comment: {result.get('comment')}")
             semantic_analysis = suspicious_comment_semantic_search(result.get("comment"))
+            logger.info(f"Semantic analysis for comment {idx}: {len(semantic_analysis)} scores")
             behavioral_analysis = []
             if username and result.get("comment"):
+                logger.info(f"Calling collect_behavioral_signals for comment {idx} with username='{username}'")
                 behavioral_analysis = collect_behavioral_signals(username, result.get("comment"), table_name)
+                logger.info(f"Behavioral analysis for comment {idx} returned {len(behavioral_analysis)} evidence items: {behavioral_analysis}")
+            else:
+                logger.warning(f"Skipping behavioral analysis for comment {idx}: username={username}, comment_exists={bool(result.get('comment'))}")
             suspicious_comments.append({
                 "comment": result.get("comment"),
                 "username": username,
                 "analysis": semantic_analysis,
                 "behavioral": behavioral_analysis
             })
+    logger.info(f"analyze_suspicious_comment returning {len(suspicious_comments)} suspicious comments")
     return suspicious_comments
 
 def suspicious_comment_semantic_search(comment: str) -> List[float]:
@@ -582,21 +605,31 @@ def clean_postgresql_data(table_name):
             raise
 
 def determine_review_genuinty(suspicious_comments: List[Dict]) -> List[Dict]:
+    logger.info(f"determine_review_genuinty called with {len(suspicious_comments)} suspicious comments")
     logger.info(f"suspicious_comments input: {json.dumps(suspicious_comments, default=str)}")
     semantic_scores = [item["analysis"] for item in suspicious_comments if "analysis" in item]
     behavioral_results = [item["behavioral"] for item in suspicious_comments if "behavioral" in item]
-    logger.info(f"semantic_scores: {json.dumps(semantic_scores, default=str)}")
-    logger.info(f"behavioral_results: {json.dumps(behavioral_results, default=str)}")
+    logger.info(f"semantic_scores: {semantic_scores}")
+    logger.info(f"behavioral_results: {behavioral_results}")
+    
+    # NOTICE: This seems to be duplicating behavioral analysis already done in analyze_suspicious_comment
+    logger.info("Starting duplicate behavioral analysis collection...")
     behavioral_evidence = []
-    for item in suspicious_comments:
+    for idx, item in enumerate(suspicious_comments):
         username = item.get("username")
         comment = item.get("comment")
+        logger.info(f"Processing item {idx}: username='{username}', comment_exists={bool(comment)}")
         if username and comment:
+            logger.info(f"Calling collect_behavioral_signals again for item {idx}")
             evidence = collect_behavioral_signals(username, comment, table_name)
+            logger.info(f"Item {idx} behavioral evidence: {evidence}")
         else:
+            logger.warning(f"Skipping behavioral collection for item {idx}: missing username or comment")
             evidence = []
         behavioral_evidence.append(evidence)
-        logger.info(f"behavioral_evidence (current): {json.dumps(behavioral_evidence, default=str)}")
+        logger.info(f"behavioral_evidence after item {idx}: {behavioral_evidence}")
+    
+    logger.info(f"Final behavioral_evidence: {behavioral_evidence}")
     try:
         response = requests.post(
             "http://localhost:11434/api/generate",
@@ -670,10 +703,12 @@ def determine_review_genuinty(suspicious_comments: List[Dict]) -> List[Dict]:
 # ─── DB Helper ────────────────────────────────────────────────────────────────
 def _execute_query_with_param(query, params):
     try:
+        logger.info(f"Executing SQL query: {query} with params: {params}")
         conn = psycopg2.connect(**DB_CONFIG)
         cursor = conn.cursor()
         cursor.execute(query, params)
         result = cursor.fetchall()
+        logger.info(f"Query result: {result}")
         cursor.close()
         conn.close()
         return result
@@ -684,34 +719,46 @@ def _execute_query_with_param(query, params):
 
 # ─── SQL Query Wrappers ────────────────────────────────────────────────────────
 def query_same_comment_multiple_users(comment, table_name):
+    logger.info(f"query_same_comment_multiple_users called with comment='{comment[:30]}...', table='{table_name}'")
     sql = f"""
     SELECT COUNT(DISTINCT username)
     FROM {table_name}
     WHERE comment = %s
     """
-    return _execute_query_with_param(sql, (comment,))
+    result = _execute_query_with_param(sql, (comment,))
+    logger.info(f"query_same_comment_multiple_users returning: {result}")
+    return result
 
 
 def query_user_repeated_same_comment(username, comment, table_name):
+    logger.info(f"query_user_repeated_same_comment called with username='{username}', comment='{comment[:30]}...', table='{table_name}'")
     sql = f"""
     SELECT COUNT(*)
     FROM {table_name}
     WHERE username = %s AND comment = %s
     """
-    return _execute_query_with_param(sql, (username, comment))
+    result = _execute_query_with_param(sql, (username, comment))
+    logger.info(f"query_user_repeated_same_comment returning: {result}")
+    return result
 
 
 def query_comment_length(comment, table_name):
+    logger.info(f"query_comment_length called with comment='{comment[:30]}...', table='{table_name}'")
     sql = "SELECT LENGTH(%s)"
-    return _execute_query_with_param(sql, (comment,))
+    result = _execute_query_with_param(sql, (comment,))
+    logger.info(f"query_comment_length returning: {result}")
+    return result
 
 def query_duplicate_comment_across_products(comment, table_name):
+    logger.info(f"query_duplicate_comment_across_products called with comment='{comment[:30]}...', table='{table_name}'")
     sql = f"""
     SELECT COUNT(DISTINCT product)
     FROM {table_name}
     WHERE comment = %s
     """
-    return _execute_query_with_param(sql, (comment,))
+    result = _execute_query_with_param(sql, (comment,))
+    logger.info(f"query_duplicate_comment_across_products returning: {result}")
+    return result
 
 def query_user_posting_rate(username, table_name):
     sql = f"""
@@ -722,41 +769,58 @@ def query_user_posting_rate(username, table_name):
     return _execute_query_with_param(sql, (username,))
 
 def collect_behavioral_signals(username, comment, table_name):
+    logger.info(f"collect_behavioral_signals called with username='{username}', comment_length={len(comment) if comment else 0}, table='{table_name}'")
     evidence = []
 
     try:
         result = query_same_comment_multiple_users(comment, table_name)
+        logger.info(f"query_same_comment_multiple_users result: {result}")
         if result and len(result) > 0 and result[0][0] > 1:
             evidence.append("Same comment used by multiple users.")
+            logger.info(f"Added evidence: Same comment used by {result[0][0]} multiple users")
+        else:
+            logger.info(f"No evidence for same comment multiple users: result={result}")
     except Exception as e:
         logger.error(f"Error in query_same_comment_multiple_users: {str(e)}")
 
     try:
         result = query_user_repeated_same_comment(username, comment, table_name)
+        logger.info(f"query_user_repeated_same_comment result: {result}")
         if result and len(result) > 0 and result[0][0] > 1:
             evidence.append("User reused the same comment.")
+            logger.info(f"Added evidence: User reused comment {result[0][0]} times")
+        else:
+            logger.info(f"No evidence for user repeated comment: result={result}")
     except Exception as e:
         logger.error(f"Error in query_user_repeated_same_comment: {str(e)}")
 
     try:
         result = query_comment_length(comment, table_name)
+        logger.info(f"query_comment_length result: {result}")
         if result and len(result) > 0 and result[0][0] < 20:
             evidence.append("Comment is short (under 30 chars).")
+            logger.info(f"Added evidence: Short comment length {result[0][0]} chars")
+        else:
+            logger.info(f"No evidence for short comment: result={result}, length={result[0][0] if result and len(result) > 0 else 'N/A'}")
     except Exception as e:
         logger.error(f"Error in query_comment_length: {str(e)}")
 
     try:
         product_counts = query_duplicate_comment_across_products(comment, table_name)
+        logger.info(f"query_duplicate_comment_across_products result: {product_counts}")
         if product_counts and len(product_counts) > 0 and len(product_counts[0]) > 0 and product_counts[0][0] > 1:
             evidence.append("Same comment used for multiple products.")
+            logger.info(f"Added evidence: Comment used for {product_counts[0][0]} products")
+        else:
+            logger.info(f"No evidence for duplicate across products: result={product_counts}")
     except Exception as e:
         logger.error(f"Error in query_duplicate_comment_across_products: {str(e)}")
-
 
     # Optional: time-based evidence (if timestamp exists)
     # rate_data = query_user_posting_rate(username, table_name)
     # do analysis here
 
+    logger.info(f"collect_behavioral_signals returning {len(evidence)} evidence items: {evidence}")
     return evidence
 
 

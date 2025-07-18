@@ -139,7 +139,11 @@ function showCommentsOverlay(comments) {
   const now = Date.now();
   if (now - lastOverlayRunTimestamp < OVERLAY_RUN_THROTTLE_MS) return;
   lastOverlayRunTimestamp = now;
-  const commentsHash = comments.join('|');
+  
+  // Create hash from comment text (whether comments are strings or objects)
+  const commentTexts = comments.map(c => typeof c === 'string' ? c : c.comment);
+  const commentsHash = commentTexts.join('|');
+  
   if (analyzedComments.has(commentsHash)) {
     displayResultsInComments(analyzedComments.get(commentsHash));
     return;
@@ -185,90 +189,25 @@ function showCommentsOverlay(comments) {
 // Debounced function to process comments
 function debouncedProcessComments() {
   if (apiCallTimer) clearTimeout(apiCallTimer);
-  apiCallTimer = setTimeout(() => {
-    const comments = ShopeeHelpers.extractShopeeCommentTexts();
-    if (comments && comments.length > 0) {
-      console.log(`Processing ${comments.length} comments after pagination or DOM change`);
-      window.extractedCommentsCache = window.ShopeeHelpers.extractDetailedCommentData();
-      showCommentsOverlay(comments);
-    } else {
-      console.log('No comments found to process');
+  apiCallTimer = setTimeout(async () => {
+    try {
+      // Always use detailed comments with usernames
+      const detailedComments = await window.CommentExtractor.extractAllComments(false);
+      if (detailedComments && detailedComments.length > 0) {
+        console.log(`Processing ${detailedComments.length} detailed comments with usernames`);
+        window.extractedCommentsCache = detailedComments;
+        showCommentsOverlay(detailedComments);
+      } else {
+        console.log('No detailed comments found, falling back to simple extraction');
+        const simpleComments = ShopeeHelpers.extractShopeeCommentTexts();
+        showCommentsOverlay(simpleComments);
+      }
+    } catch (error) {
+      console.error('Error extracting detailed comments:', error);
+      const simpleComments = ShopeeHelpers.extractShopeeCommentTexts();
+      showCommentsOverlay(simpleComments);
     }
-  }, 200); // Reduce delay for faster DOM response
-}
-
-function showCommentsOverlay(comments) {
-  if (!comments.length) return;
-  const now = Date.now();
-  if (now - lastOverlayRunTimestamp < OVERLAY_RUN_THROTTLE_MS) return;
-  lastOverlayRunTimestamp = now;
-  
-  // Don't process if no comments
-  if (!comments.length) return;
-  
-  // Check if these comments have already been processed
-  const commentsHash = comments.join('|');
-  
-  // If already analyzed, display the cached results and return
-  if (analyzedComments.has(commentsHash)) {
-    displayResultsInComments(analyzedComments.get(commentsHash));
-    return;
-  }
-  
-  // Don't proceed if an API call is already in progress
-  if (isApiCallInProgress) return;
-  
-  // Mark as in progress
-  isApiCallInProgress = true;
-  
-  // Flag to track if we're making DOM changes to prevent observer loop
-  window.isUpdatingCommentDOM = true;
-
-  // Remove previous overlay if exists
-  let logDiv = document.getElementById('shopee-comments-overlay');
-  if (logDiv) logDiv.remove();
-
-  // Create new overlay for loading indication using helper
-  logDiv = ShopeeHelpers.createLoadingOverlay();
-  document.body.appendChild(logDiv);
-  
-  // Get product name
-  let productName = null;
-  const productNameElement = document.querySelector('h1.vR6K3w');
-  if (productNameElement) {
-    productName = productNameElement.textContent.trim();
-  }
-  
-  // Always use backend for analysis
-  console.log("Starting comment analysis with backend");
-  
-  // Get the API key directly here to ensure it's used
-  window.LLMProcessing.getStoredApiKey().then(apiKey => {
-    console.log("API key for analysis:", apiKey ? "Available (masked)" : "Not available");
-    
-    // Use the backend with the API key
-    return window.LLMProcessing.analyzeCommentsWithBackendOnly(comments, productName);
-  }).then(result => {
-    // Remove loading overlay when done
-    logDiv.remove();
-    isApiCallInProgress = false;
-    
-    if (result.error) {
-      // Show error in small overlay using helper
-      const errorDiv = ShopeeHelpers.createErrorOverlay(result.message);
-      document.body.appendChild(errorDiv);
-      
-      // Remove error after 5 seconds
-      setTimeout(() => {
-        if (errorDiv.parentNode) errorDiv.remove();
-      }, 5000);
-    } else {
-      // Store results for reuse
-      analyzedComments.set(commentsHash, result);
-      // Display results in the comment divs
-      displayResultsInComments(result);
-    }
-  });
+  }, 200);
 }
 
 // Watch for changes in the comment list container
@@ -321,7 +260,14 @@ function observeShopeeComments() {
   commentObserver.observe(commentsSection, { childList: true, subtree: true });
 
   const comments = ShopeeHelpers.extractShopeeCommentTexts();
-  showCommentsOverlay(comments);
+  if (comments && comments.length > 0) {
+    window.CommentExtractor.extractAllComments(false).then(detailedComments => {
+      showCommentsOverlay(detailedComments.length > 0 ? detailedComments : comments);
+    }).catch(error => {
+      console.error('Error extracting detailed comments:', error);
+      showCommentsOverlay(comments);
+    });
+  }
 }
 
 // Set up URL change detection outside of waitForCommentsSection

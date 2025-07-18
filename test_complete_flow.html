@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Complete Flow Test - Username Extraction</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .test-section { margin: 20px 0; padding: 15px; border: 1px solid #ddd; }
+        .comment-container { margin: 10px 0; padding: 10px; border: 1px solid #ccc; }
+        .username { font-weight: bold; color: #007bff; }
+        .timestamp { color: #666; font-size: 0.9em; }
+        .comment-text { margin: 5px 0; }
+        button { padding: 10px 15px; margin: 5px; }
+        #results { margin-top: 20px; padding: 10px; background: #f8f9fa; }
+        .log { margin: 5px 0; font-family: monospace; font-size: 0.9em; }
+    </style>
+</head>
+<body>
+    <h1>Complete Flow Test - Username Extraction</h1>
+    
+    <div class="test-section">
+        <h3>Test Comments with Both Username Types</h3>
+        
+        <!-- Comment 1: Uncensored username (a.InK5kS) -->
+        <div class="comment-container">
+            <a class="InK5kS username">john_smith_2024</a>
+            <div class="XYk98l timestamp">2024-01-15 14:30 | Variation: Red, Size L</div>
+            <div class="YNedDV comment-text">This product is absolutely amazing! Great quality and fast shipping. Highly recommend to everyone.</div>
+            <div class="rGdC5O">
+                <span class="icon-rating-solid"></span>
+                <span class="icon-rating-solid"></span>
+                <span class="icon-rating-solid"></span>
+                <span class="icon-rating-solid"></span>
+                <span class="icon-rating-solid"></span>
+            </div>
+        </div>
+        
+        <!-- Comment 2: Censored username (div.InK5kS) -->
+        <div class="comment-container">
+            <div class="InK5kS username">alice***</div>
+            <div class="XYk98l timestamp">2024-01-14 09:15</div>
+            <div class="YNedDV comment-text">Good product but shipping took longer than expected. Overall satisfied with the purchase quality.</div>
+            <div class="rGdC5O">
+                <span class="icon-rating-solid"></span>
+                <span class="icon-rating-solid"></span>
+                <span class="icon-rating-solid"></span>
+                <span class="icon-rating-solid"></span>
+            </div>
+        </div>
+        
+        <!-- Comment 3: Mixed case with uncensored preferred -->
+        <div class="comment-container">
+            <a class="InK5kS username">mike_jones_real</a>
+            <div class="InK5kS username">mike***</div>
+            <div class="XYk98l timestamp">2024-01-13 16:45 | Location: New York</div>
+            <div class="YNedDV comment-text">Perfect fit and excellent material quality. Will definitely buy again from this seller.</div>
+            <div class="rGdC5O">
+                <span class="icon-rating-solid"></span>
+                <span class="icon-rating-solid"></span>
+                <span class="icon-rating-solid"></span>
+                <span class="icon-rating-solid"></span>
+                <span class="icon-rating-solid"></span>
+            </div>
+        </div>
+    </div>
+    
+    <div class="test-section">
+        <h3>Actions</h3>
+        <button onclick="testExtractComments()">Extract Current Page Comments</button>
+        <button onclick="testExtractAllComments()">Extract All Comments (Async)</button>
+        <button onclick="testFormatForUpload()">Format for Upload</button>
+        <button onclick="clearResults()">Clear Results</button>
+    </div>
+    
+    <div id="results">
+        <h3>Results</h3>
+        <div id="output"></div>
+    </div>
+
+    <script>
+        // Mock chrome API for testing
+        window.chrome = window.chrome || {
+            runtime: {
+                sendMessage: function(message, callback) {
+                    console.log('Mock chrome.runtime.sendMessage:', message);
+                    if (callback) callback({success: true, message: 'Mock response'});
+                }
+            }
+        };
+
+        function log(message) {
+            const output = document.getElementById('output');
+            const logDiv = document.createElement('div');
+            logDiv.className = 'log';
+            logDiv.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+            output.appendChild(logDiv);
+            console.log(message);
+        }
+
+        async function testExtractComments() {
+            log("Testing extractCurrentPageComments()...");
+            
+            if (typeof window.CommentExtractor === 'undefined') {
+                log("ERROR: CommentExtractor not loaded. Make sure commentExtractor.js is included.");
+                return;
+            }
+            
+            try {
+                const comments = window.CommentExtractor.extractCurrentPageComments();
+                log(`Found ${comments.length} comments`);
+                
+                comments.forEach((comment, index) => {
+                    log(`Comment ${index + 1}:`);
+                    log(`  Username: "${comment.username}" (Censored: ${comment.isCensored})`);
+                    log(`  Rating: ${comment.starRating} stars`);
+                    log(`  Timestamp: ${comment.timestampOnly}`);
+                    log(`  Text: "${comment.comment.substring(0, 50)}..."`);
+                });
+                
+                return comments;
+            } catch (error) {
+                log(`ERROR: ${error.message}`);
+                console.error(error);
+            }
+        }
+
+        async function testExtractAllComments() {
+            log("Testing extractAllComments() async function...");
+            
+            if (typeof window.CommentExtractor === 'undefined') {
+                log("ERROR: CommentExtractor not loaded. Make sure commentExtractor.js is included.");
+                return;
+            }
+            
+            try {
+                const comments = await window.CommentExtractor.extractAllComments(true);
+                log(`Extracted ${comments.length} comments asynchronously`);
+                
+                comments.forEach((comment, index) => {
+                    log(`Async Comment ${index + 1}:`);
+                    log(`  Username: "${comment.username}" (Censored: ${comment.isCensored})`);
+                    log(`  Rating: ${comment.starRating} stars`);
+                    log(`  Timestamp: ${comment.timestampOnly}`);
+                    log(`  Text: "${comment.comment.substring(0, 50)}..."`);
+                });
+                
+                return comments;
+            } catch (error) {
+                log(`ERROR: ${error.message}`);
+                console.error(error);
+            }
+        }
+
+        async function testFormatForUpload() {
+            log("Testing formatCommentsForUpload()...");
+            
+            if (typeof window.CommentExtractor === 'undefined') {
+                log("ERROR: CommentExtractor not loaded. Make sure commentExtractor.js is included.");
+                return;
+            }
+            
+            try {
+                // First extract comments to populate the accumulator
+                await window.CommentExtractor.extractAllComments(true);
+                
+                const formatted = window.CommentExtractor.formatCommentsForUpload();
+                log(`Formatted data for upload:`);
+                log(`  Comments array length: ${formatted.comments.length}`);
+                log(`  Metadata array length: ${formatted.metadata.length}`);
+                
+                formatted.metadata.forEach((meta, index) => {
+                    log(`  Metadata ${index + 1}:`);
+                    log(`    Username: "${meta.username}"`);
+                    log(`    Rating: ${meta.rating}`);
+                    log(`    Source: ${meta.source}`);
+                    log(`    Product: ${meta.product}`);
+                });
+                
+                return formatted;
+            } catch (error) {
+                log(`ERROR: ${error.message}`);
+                console.error(error);
+            }
+        }
+
+        function clearResults() {
+            document.getElementById('output').innerHTML = '';
+        }
+
+        // Load commentExtractor.js dynamically
+        function loadCommentExtractor() {
+            const script = document.createElement('script');
+            script.src = '/home/zhenyu/Programming/FutureHack-2025/src/commentExtractor.js';
+            script.onload = function() {
+                log("CommentExtractor loaded successfully!");
+                log("Available methods: " + Object.keys(window.CommentExtractor).join(', '));
+            };
+            script.onerror = function() {
+                log("ERROR: Failed to load commentExtractor.js");
+                log("Make sure the file path is correct and accessible");
+            };
+            document.head.appendChild(script);
+        }
+
+        // Initialize when page loads
+        window.addEventListener('load', function() {
+            log("Test page loaded. Attempting to load CommentExtractor...");
+            loadCommentExtractor();
+        });
+    </script>
+</body>
+</html>
