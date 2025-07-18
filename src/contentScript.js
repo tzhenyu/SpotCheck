@@ -282,6 +282,8 @@ function debouncedProcessComments() {
     return;
   }
   
+  console.log('debouncedProcessComments: Starting processing...');
+  
   if (apiCallTimer) clearTimeout(apiCallTimer);
   apiCallTimer = setTimeout(async () => {
     if (isProcessingComments || isApiCallInProgress) {
@@ -297,6 +299,13 @@ function debouncedProcessComments() {
       
       // Clear any cached data to force fresh extraction
       window.extractedCommentsCache = [];
+      
+      // Check if comments section exists
+      const commentsSection = document.querySelector(ShopeeHelpers.SELECTORS.COMMENT_LIST);
+      if (!commentsSection) {
+        console.log('debouncedProcessComments: No comments section found');
+        return;
+      }
       
       // Always use detailed comments with usernames for current page only
       const detailedComments = await window.CommentExtractor.extractAllComments(true); // Reset accumulated
@@ -326,7 +335,7 @@ function observeShopeeComments() {
   const commentsSection = document.querySelector(ShopeeHelpers.SELECTORS.COMMENT_LIST);
   if (!commentsSection) return;
 
-  // Enhanced pagination observer with multiple selectors
+  // Simplified pagination observer with debouncing
   let paginationChangeTimeout = null;
   const paginationObserver = new MutationObserver((mutations) => {
     if (isProcessingComments || isApiCallInProgress) return;
@@ -341,6 +350,7 @@ function observeShopeeComments() {
            mutation.target.classList.contains('active') ||
            mutation.target.closest('.shopee-pagination'))) {
         paginationChanged = true;
+        console.log('Pagination class change detected on:', mutation.target);
         break;
       }
       
@@ -355,6 +365,7 @@ function observeShopeeComments() {
                 node.querySelector('[class*="pagination"]')
               )) {
               paginationChanged = true;
+              console.log('Pagination DOM addition detected:', node);
               break;
             }
           }
@@ -363,15 +374,26 @@ function observeShopeeComments() {
     }
     
     if (paginationChanged) {
-      console.log('Pagination DOM change detected');
-      // Debounce pagination changes
+      console.log('=== PAGINATION MUTATION DETECTED ===');
+      // Debounce pagination changes to prevent multiple triggers
       if (paginationChangeTimeout) clearTimeout(paginationChangeTimeout);
       paginationChangeTimeout = setTimeout(() => {
+        console.log('Processing pagination mutation change...');
         // Clear cache to force reprocessing
         analyzedComments.clear();
         window.extractedCommentsCache = [];
-        setTimeout(() => debouncedProcessComments(), 500);
-      }, 300);
+        
+        // Reset pagination tracking
+        currentPaginationPage = '1';
+        
+        // Process with delay to allow content to load
+        setTimeout(() => {
+          if (isAutoExtractEnabled && !isProcessingComments) {
+            console.log('Executing debouncedProcessComments after pagination mutation');
+            debouncedProcessComments();
+          }
+        }, 2000); // 2 second delay for content loading
+      }, 1000); // 1 second debounce
     }
   });
   
@@ -397,22 +419,61 @@ function observeShopeeComments() {
     }
   }
 
-  // Enhanced click event listener for pagination
+  // Enhanced click event listener for pagination with improved detection
+  let paginationClickTimeout = null;
   if (document && typeof document.addEventListener === 'function') {
     document.addEventListener('click', (event) => {
-      const isPaginationButton = event.target.closest('.shopee-page-controller') || 
-                                event.target.closest('.shopee-pagination') ||
-                                event.target.matches('.shopee-icon-button--right') || 
-                                event.target.matches('.shopee-icon-button--left') ||
-                                event.target.matches('[class*="page"]') ||
-                                (event.target.textContent && /^\d+$/.test(event.target.textContent.trim()));
+      console.log('Document click detected:', event.target);
+      
+      // More robust pagination button detection
+      const target = event.target;
+      const isPaginationButton = target.closest('.shopee-page-controller') || 
+                                target.closest('.shopee-pagination') ||
+                                target.matches('.shopee-icon-button--right') || 
+                                target.matches('.shopee-icon-button--left') ||
+                                target.matches('[class*="page"]') ||
+                                target.matches('button[class*="shopee-button"]') ||
+                                (target.tagName === 'BUTTON' && target.textContent && /^\d+$/.test(target.textContent.trim())) ||
+                                (target.closest('button') && target.closest('button').textContent && /^\d+$/.test(target.closest('button').textContent.trim()));
+      
+      console.log('Is pagination button:', isPaginationButton);
       
       if (isPaginationButton) {
-        console.log('Pagination click detected:', event.target);
-        // Clear cache to force reprocessing
+        console.log('=== PAGINATION CLICK DETECTED ===');
+        console.log('Click target:', event.target);
+        console.log('Click target text content:', event.target.textContent);
+        console.log('Click target class:', event.target.className);
+        console.log('Auto-extract enabled:', isAutoExtractEnabled);
+        console.log('Is processing comments:', isProcessingComments);
+        
+        // Clear any existing timeout to prevent multiple triggers
+        if (paginationClickTimeout) {
+          clearTimeout(paginationClickTimeout);
+        }
+        
+        // Clear cache immediately to force reprocessing
         analyzedComments.clear();
         window.extractedCommentsCache = [];
-        setTimeout(() => debouncedProcessComments(), 500);
+        
+        // Reset pagination tracking to force detection
+        currentPaginationPage = '1';
+        
+        // Show immediate feedback to user
+        const feedbackDiv = document.createElement('div');
+        feedbackDiv.style.cssText = 'position: fixed; top: 20px; right: 20px; background: #2196F3; color: white; padding: 10px 15px; z-index: 999999; border-radius: 5px; font-family: Arial, sans-serif; font-size: 14px;';
+        feedbackDiv.textContent = '🔄 Loading new page...';
+        document.body.appendChild(feedbackDiv);
+        
+        // Use a longer delay to allow page content to load completely
+        paginationClickTimeout = setTimeout(() => {
+          feedbackDiv.remove();
+          if (isAutoExtractEnabled && !isProcessingComments) {
+            console.log('=== EXECUTING PAGINATION PROCESSING AFTER CLICK ===');
+            debouncedProcessComments();
+          } else {
+            console.log('Skipping processing - auto-extract:', isAutoExtractEnabled, 'processing:', isProcessingComments);
+          }
+        }, 3000); // Increased to 3 seconds for better stability
       }
     }, true);
   }
@@ -502,34 +563,42 @@ function checkUrlChange() {
     waitForCommentsSection();
   }
   
-  // Check for hash changes (often used for pagination)
+  // Check for hash changes (often used for pagination) - with reduced aggressiveness
   if (currentUrlHash !== newHash) {
     console.log(`URL hash changed from ${currentUrlHash} to ${newHash}`);
     currentUrlHash = newHash;
     
-    // Only process if hash looks like pagination (contains numbers)
-    if (newHash.match(/[0-9]/) && isAutoExtractEnabled && !isProcessingComments) {
+    // Only process if hash looks like pagination AND we haven't processed recently
+    const now = Date.now();
+    if (newHash.match(/[0-9]/) && isAutoExtractEnabled && !isProcessingComments && 
+        (now - lastProcessingTime > MIN_PROCESSING_INTERVAL)) {
+      console.log('Processing hash change for pagination');
       // Clear cache and reprocess comments
       analyzedComments.clear();
       window.extractedCommentsCache = [];
       
-      setTimeout(() => debouncedProcessComments(), 500);
+      setTimeout(() => {
+        if (!isProcessingComments) {
+          console.log('Executing debouncedProcessComments after hash change');
+          debouncedProcessComments();
+        }
+      }, 2000); // Increased delay to avoid conflicts
     }
   }
   
-  // Check for pagination changes - but only if we're not already processing
-  if (!isProcessingComments) {
+  // Reduce frequency of pagination checks to avoid conflicts
+  if (!isProcessingComments && (Date.now() - lastPaginationCheckTime > 3000)) {
     checkPaginationChange();
   }
 }
 
-// Check if pagination has changed
+// Check if pagination has changed - improved detection
 let lastPaginationCheckTime = 0;
 function checkPaginationChange() {
   try {
     // Throttle pagination checks
     const now = Date.now();
-    if (now - lastPaginationCheckTime < 1000) return; // Max once per second
+    if (now - lastPaginationCheckTime < 2000) return; // Max once per 2 seconds
     
     // Multiple selectors for different Shopee layouts
     const paginationSelectors = [
@@ -537,20 +606,27 @@ function checkPaginationChange() {
       '.shopee-page-controller .shopee-button-solid--primary',
       '.shopee-pagination .active',
       '.shopee-page-controller [class*="primary"]',
-      '.shopee-page-controller button[class*="active"]'
+      '.shopee-page-controller button[class*="active"]',
+      '.shopee-page-controller button[aria-current="page"]'
     ];
     
     let activePaginationElement = null;
+    let foundSelector = '';
     for (const selector of paginationSelectors) {
       activePaginationElement = document.querySelector(selector);
-      if (activePaginationElement) break;
+      if (activePaginationElement) {
+        foundSelector = selector;
+        break;
+      }
     }
     
     if (activePaginationElement) {
       const currentPage = activePaginationElement.textContent.trim();
+      console.log(`Pagination check: current page "${currentPage}", tracked page "${currentPaginationPage}", selector: ${foundSelector}`);
       
       // If the page number changed, process comments again
-      if (currentPage !== currentPaginationPage && currentPage !== '') {
+      if (currentPage !== currentPaginationPage && currentPage !== '' && /^\d+$/.test(currentPage)) {
+        console.log(`=== PAGINATION PAGE NUMBER CHANGED ===`);
         console.log(`Pagination changed from ${currentPaginationPage} to ${currentPage}`);
         currentPaginationPage = currentPage;
         lastPaginationCheckTime = now;
@@ -559,13 +635,20 @@ function checkPaginationChange() {
         analyzedComments.clear();
         window.extractedCommentsCache = [];
         
+        // Show user feedback
+        const feedbackDiv = document.createElement('div');
+        feedbackDiv.style.cssText = 'position: fixed; top: 20px; right: 20px; background: #4CAF50; color: white; padding: 10px 15px; z-index: 999999; border-radius: 5px; font-family: Arial, sans-serif; font-size: 14px;';
+        feedbackDiv.textContent = `📄 Switched to page ${currentPage}`;
+        document.body.appendChild(feedbackDiv);
+        
         // Process comments with longer delay for content to load
         setTimeout(() => {
+          feedbackDiv.remove();
           if (isAutoExtractEnabled && !isProcessingComments) {
-            console.log('Processing comments after pagination change');
+            console.log('Processing comments after pagination page number change');
             debouncedProcessComments();
           }
-        }, 1000); // Increased delay for more stability
+        }, 2500); // Increased delay for more stability
       }
     }
   } catch (error) {
@@ -573,30 +656,30 @@ function checkPaginationChange() {
   }
 }
 
-// Poll for URL and pagination changes with reasonable frequency
-setInterval(checkUrlChange, 1000); // Reduced from 50ms to 1000ms
+// Poll for URL and pagination changes with reasonable frequency  
+setInterval(checkUrlChange, 2000); // Reduced frequency from 1000ms to 2000ms
 
-// Additional periodic check for unprocessed comments (backup detection) - less aggressive
+// Additional periodic check for unprocessed comments (backup detection) - much less aggressive
 let lastPeriodicCheckTime = 0;
 setInterval(() => {
-  if (!isAutoExtractEnabled || isApiCallInProgress) return;
+  if (!isAutoExtractEnabled || isApiCallInProgress || isProcessingComments) return;
   
   // Throttle periodic checks to prevent excessive processing
   const now = Date.now();
-  if (now - lastPeriodicCheckTime < 5000) return; // Minimum 5 seconds between checks
+  if (now - lastPeriodicCheckTime < 15000) return; // Increased from 5s to 15s
   
-  const currentComments = ShopeeHelpers.extractShopeeCommentTexts();
-  if (currentComments.length > 0) {
-    const commentsHash = currentComments.join('|');
-    
-    // If we have comments but no analysis results, process them
+  lastPeriodicCheckTime = now;
+  
+  // Only check if there might be unprocessed comments
+  const comments = ShopeeHelpers ? ShopeeHelpers.extractShopeeCommentTexts() : [];
+  if (comments.length > 0) {
+    const commentsHash = comments.join('|');
     if (!analyzedComments.has(commentsHash)) {
-      console.log('Periodic check: Found unprocessed comments, processing...');
-      lastPeriodicCheckTime = now;
+      console.log('Periodic check: Found unprocessed comments, triggering processing');
       debouncedProcessComments();
     }
   }
-}, 10000); // Increased from 2000ms to 10000ms
+}, 15000); // Increased from 10s to 15s
 
 function waitForCommentsSection() {
   // Remove any existing overlay when changing products
@@ -655,6 +738,12 @@ function loadAutoExtractSetting() {
       // Default to true if not set
       isAutoExtractEnabled = result[AUTO_EXTRACT_STORAGE_KEY] !== false;
       console.log(`Auto-extract is ${isAutoExtractEnabled ? 'enabled' : 'disabled'}`);
+      
+      // Force enable for debugging
+      if (!isAutoExtractEnabled) {
+        console.log('Force enabling auto-extract for debugging');
+        isAutoExtractEnabled = true;
+      }
     });
   } catch (error) {
     console.error('Failed to load auto-extract setting:', error);

@@ -639,20 +639,20 @@ def determine_review_genuinty(suspicious_comments: List[Dict]) -> List[Dict]:
             json={
                 "model": f"{llm_model}",
                 "prompt": (
-                    "You are a fake review evaluator for e-commerce. For each review, classify as 'Fake' if either the behavioral analysis OR the semantic analysis indicates suspicious or promotional activity, even if only one is present. Classify as 'Genuine' ONLY if both behavioral and semantic analysis are normal. For each review, explain the reason in simple, clear, and friendly language that any online shopper can understand. Avoid technical terms like 'semantic analysis' or 'behavioral analysis'. Use phrases like 'This review looks real because...' or 'This review seems fake because...'. Keep explanations short, direct, and easy to read. Do not use words like 'semantic', 'behavioral', 'embedding', or 'similarity'.\n"
-                    "If the review is flagged for semantic reasons (e.g., overly promotional, vague, lacks product details), but behavioral is normal, classify as 'Fake'. If the review is flagged for behavioral reasons (e.g., abnormal posting pattern), but semantic is normal, classify as 'Fake'. If both are normal, classify as 'Genuine'. If the review is vague/promotional or looks copied, classify as 'Fake' and do not hedge or say further investigation is needed. Be decisive: if any signal is suspicious, verdict must be 'Fake'.\n"
+                    "You are a fake review evaluator for e-commerce. For each review, classify as 'Fake' if either the behavioral analysis OR the semantic analysis indicates suspicious or promotional activity, even if only one is present. Classify as 'Genuine' ONLY if both behavioral and semantic analysis are normal. For each review, explain the reason in simple, clear, and confident language that any online shopper can understand. Avoid technical terms like 'semantic analysis' or 'behavioral analysis'. Use direct phrases like 'This review is fake because...' or 'This review is genuine because...'. Keep explanations short, direct, and easy to read. Do not use words like 'semantic', 'behavioral', 'embedding', or 'similarity'.\n"
+                    "If the review is flagged for semantic reasons (e.g., overly promotional, vague, lacks product details), but behavioral is normal, classify as 'Fake'. If the review is flagged for behavioral reasons (e.g., abnormal posting pattern), but behavioral is normal, classify as 'Fake'. If both are normal, classify as 'Genuine'. If the review is vague/promotional or looks copied, classify as 'Fake' and do not hedge or say further investigation is needed. Be decisive and confident: if any signal is suspicious, verdict must be 'Fake'.\n"
                     f"Semantic: {json.dumps(semantic_scores)}\n"
                     f"Behavioral: {json.dumps(behavioral_results)}\n"
                     f"BehavioralEvidence: {json.dumps(behavioral_evidence)}\n\n"
                     "Respond strictly with:\n"
                     "1. A **Python-style list** of classifications in this exact format:\n"
                     "   ['Genuine', 'Fake', 'Genuine']\n"
-                    "2. A **Python-style list** of single sentence explanations for each review, matching the order above. Each explanation should clearly describe why the review is classified as 'Fake' or 'Genuine', and must not contradict the verdict. Do not say 'may be fake' or 'further investigation is needed'—be direct.\n\n"
+                    "2. A **Python-style list** of single sentence explanations for each review, matching the order above. Each explanation should clearly and confidently describe why the review is classified as 'Fake' or 'Genuine', and must not contradict the verdict. Do not use uncertain language like 'may be fake', 'seems fake', or 'further investigation is needed'—be direct and confident.\n\n"
                     "Do NOT add any introductions or explanations before the lists.\n"
                     "Begin your response immediately with the classification list, then the explanation list.\n"
                     "Example response:\n"
                     "['Genuine', 'Fake']\n"
-                    "['This review looks real because it talks about the product in detail.', 'This review seems fake because it repeats the same phrases as other reviews.']"
+                    "['This review is genuine because it provides specific product details and personal experience.', 'This review is fake because the user reused the same comment multiple times.']"
                 ),
                 "system": "You are a strict output generator. Follow the output format exactly and avoid unnecessary text.",
                 "stream": False
@@ -683,9 +683,9 @@ def determine_review_genuinty(suspicious_comments: List[Dict]) -> List[Dict]:
             # Fallback explanation if none provided
             if verdict and not explanation:
                 if verdict.strip().lower() == 'fake':
-                    explanation = "This review appears suspicious based on analysis."
+                    explanation = "This review is fake based on analysis."
                 elif verdict.strip().lower() == 'genuine':
-                    explanation = "This review appears authentic."
+                    explanation = "This review is genuine based on analysis."
                 else:
                     explanation = "Analysis completed."
             
