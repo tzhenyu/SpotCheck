@@ -152,7 +152,7 @@ flowchart TD
 #### PostgreSQL (Relational DB)
 
   * Stores metadata: username, timestamp, product info, etc.
-  * Hosts external review datasets (e.g., [Kaggle 10k reviews](https://www.kaggle.com/datasets/shymammoth/shopee-reviews/code))
+  * Hosts external review datasets (e.g., [Kaggle 10k reviews](https://www.kaggle.com/datasets/shymammoth/shopee-reviews/code), cleaned for vector embedding)
   * Enables behavior-based analysis using SQL queries
 
 #### pgvector (Vector DB)
@@ -261,7 +261,24 @@ Local LLM is **~61.14%** faster than Gemini LLM on average.
 We've tried using LangChain Agent to allow local deployed LLM to decide which analysis to perform to determine if the review is real or fake. It took around a minute to process due to its chain of thoughts. We didn't try using Gemini LLM on LangChain Agent as we are concerned with the network latency. But hey, at least we tried :')
 
 ## ✅ Real results
-Work in progress gang
+<img width="1122" height="195" alt="image" src="https://github.com/user-attachments/assets/69ee9f0c-6dbf-47fc-a988-71c5b4f65ad0" />
+<img width="1118" height="961" alt="image" src="https://github.com/user-attachments/assets/599af458-431a-491a-9adc-0b53de04381d" />
+<img width="1166" height="261" alt="image" src="https://github.com/user-attachments/assets/5ddff1c0-7376-434f-82ca-2b210febc726" />
+
+## ⚠️ Limitations
+
+- High false positive rate: Some genuine reviews are mislabeled due to overlap in structure or reused wording.
+- Context hallucination: LLM may infer fake/real reasons not present in the original text.
+- Limited language understanding: Malay slang or mixed languages reduce accuracy.
+- Duplicate detection is surface-level: It doesn’t detect rewritten or paraphrased fakes.
+
+## 🔧 Potential Improvements
+
+- Fine-tune LLM on real-world Shopee reviews (SEA language mixed).
+- Include user behavior (time of review, purchase patterns) for stronger signals.
+- Using more metadata to feed LLM for better accuracy.
+- Integrate GPT-4o or fine-tuned local models for faster, more reliable classification.
+
 
 ## 🙌 Credits
 Brought to you by team **TARUMT NOT TARC**
