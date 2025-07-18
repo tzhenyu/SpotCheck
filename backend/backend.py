@@ -19,6 +19,7 @@ import asyncio
 from tqdm import tqdm
 import importlib.metadata
 import time
+import traceback
 import os
 import asyncio
 from tqdm import tqdm
@@ -363,7 +364,8 @@ async def analyze_comments_batch_ollama(comments: List[str], prompt: str = None,
                 is_fake = None
                 explanation = "No analysis result returned for this comment"
             results.append({
-                "comment": comment[:50] + "..." if len(comment) > 50 else comment,
+                "comment": comment,  # Use full comment for behavioral analysis
+                "display_comment": comment[:50] + "..." if len(comment) > 50 else comment,  # Separate display version
                 "is_fake": is_fake,
                 "explanation": explanation
             })
@@ -376,7 +378,8 @@ async def analyze_comments_batch_ollama(comments: List[str], prompt: str = None,
         logger.info(f"analyze_comments_batch_ollama failed in {elapsed:.2f} seconds for {len(comments)} comments")
         return [
             {
-                "comment": comment[:50] + "..." if len(comment) > 50 else comment,
+                "comment": comment,  # Use full comment for behavioral analysis
+                "display_comment": comment[:50] + "..." if len(comment) > 50 else comment,  # Separate display version
                 "is_fake": None,
                 "explanation": f"Batch analysis error: {str(e)}"
             }
@@ -681,7 +684,7 @@ def determine_review_genuinty(suspicious_comments: List[Dict]) -> List[Dict]:
             elif verdict and verdict.strip().lower() == 'fake':
                 verdict = 'FAKE'
             result.append({
-                "comment": item.get("comment"),
+                "comment": item.get("display_comment") or item.get("comment"),  # Use display version for frontend
                 "verdict": verdict,
                 "explanation": explanation
             })
@@ -691,7 +694,7 @@ def determine_review_genuinty(suspicious_comments: List[Dict]) -> List[Dict]:
         logger.error(f"Error in determine_review_genuinty: {str(e)}")
         return [
             {
-                "comment": item.get("comment"),
+                "comment": item.get("display_comment") or item.get("comment"),  # Use display version for frontend
                 "verdict": None,
                 "explanation": f"Error: {str(e)}"
             }
@@ -793,6 +796,9 @@ def collect_behavioral_signals(username, comment, table_name):
             logger.info(f"No evidence for user repeated comment: result={result}")
     except Exception as e:
         logger.error(f"Error in query_user_repeated_same_comment: {str(e)}")
+        logger.error(f"Exception details: {type(e).__name__}: {str(e)}")
+        import traceback
+        logger.error(f"Traceback: {traceback.format_exc()}")
 
     try:
         result = query_comment_length(comment, table_name)
@@ -804,6 +810,9 @@ def collect_behavioral_signals(username, comment, table_name):
             logger.info(f"No evidence for short comment: result={result}, length={result[0][0] if result and len(result) > 0 else 'N/A'}")
     except Exception as e:
         logger.error(f"Error in query_comment_length: {str(e)}")
+        logger.error(f"Exception details: {type(e).__name__}: {str(e)}")
+        import traceback
+        logger.error(f"Traceback: {traceback.format_exc()}")
 
     try:
         product_counts = query_duplicate_comment_across_products(comment, table_name)
@@ -815,10 +824,9 @@ def collect_behavioral_signals(username, comment, table_name):
             logger.info(f"No evidence for duplicate across products: result={product_counts}")
     except Exception as e:
         logger.error(f"Error in query_duplicate_comment_across_products: {str(e)}")
-
-    # Optional: time-based evidence (if timestamp exists)
-    # rate_data = query_user_posting_rate(username, table_name)
-    # do analysis here
+        logger.error(f"Exception details: {type(e).__name__}: {str(e)}")
+        import traceback
+        logger.error(f"Traceback: {traceback.format_exc()}")
 
     logger.info(f"collect_behavioral_signals returning {len(evidence)} evidence items: {evidence}")
     return evidence
