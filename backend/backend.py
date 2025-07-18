@@ -679,14 +679,25 @@ def determine_review_genuinty(suspicious_comments: List[Dict]) -> List[Dict]:
         for idx, item in enumerate(suspicious_comments):
             verdict = verdicts[idx] if idx < len(verdicts) else None
             explanation = explanations[idx] if idx < len(explanations) else None
+            
+            # Fallback explanation if none provided
+            if verdict and not explanation:
+                if verdict.strip().lower() == 'fake':
+                    explanation = "This review appears suspicious based on analysis."
+                elif verdict.strip().lower() == 'genuine':
+                    explanation = "This review appears authentic."
+                else:
+                    explanation = "Analysis completed."
+            
             if verdict and verdict.strip().lower() == 'genuine':
                 verdict = 'GENUINE'
             elif verdict and verdict.strip().lower() == 'fake':
                 verdict = 'FAKE'
+            
             result.append({
-                "comment": item.get("display_comment") or item.get("comment"),  # Use display version for frontend
+                "comment": item.get("display_comment") or item.get("comment"),
                 "verdict": verdict,
-                "explanation": explanation
+                "explanation": explanation or "No explanation available"
             })
         logger.info(f"determine_review_genuinty result: {json.dumps(result, default=str)}")
         return result

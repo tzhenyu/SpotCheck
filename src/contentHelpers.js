@@ -55,7 +55,7 @@ function createAnalysisDiv(result) {
   let verdict = 'REAL';
   let color = COLORS.REAL;
   let bgColor = COLORS.REAL_BG;
-  let explanation = result.explanation || 'No explanation provided';
+  let explanation = result.explanation || result.reason || 'No explanation provided';
 
   try {
     if (typeof result.verdict === 'string') {
@@ -64,6 +64,9 @@ function createAnalysisDiv(result) {
         verdict = 'FAKE';
         color = COLORS.FAKE;
         bgColor = COLORS.FAKE_BG;
+        if (!explanation || explanation === 'No explanation provided') {
+          explanation = 'This review appears suspicious based on analysis.';
+        }
       } else if (/^suspicious$/i.test(backendVerdict)) {
         verdict = 'SUSPICIOUS';
         color = '#ffa500';
