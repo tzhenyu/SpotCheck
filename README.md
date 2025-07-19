@@ -163,7 +163,7 @@ flowchart TD
 
 
 
-### 📈 Statistical Analysis Pipeline
+### Statistical Analysis Pipeline
 
 #### Semantic Analysis
 
@@ -183,7 +183,7 @@ Runs multiple SQL queries to extract behavioral patterns:
 * Length: How long is the comment (character count)?
 
 
-### 🧠 LLM Decision Pipeline
+### LLM Decision Pipeline
 
 | Stage     | Description                                                                  |
 | --------- | ---------------------------------------------------------------------------- |
