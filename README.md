@@ -221,6 +221,51 @@ We've tried using LangChain Agent to allow local deployed LLM to decide which an
 <img width="1118" height="961" alt="image" src="https://github.com/user-attachments/assets/599af458-431a-491a-9adc-0b53de04381d" />
 <img width="1166" height="261" alt="image" src="https://github.com/user-attachments/assets/5ddff1c0-7376-434f-82ca-2b210febc726" />
 
+### Backend logs
+```
+INFO:backend:Received 6 comments for analysis
+INFO:backend:No Gemini API key provided for analysis
+INFO:backend:Extracted usernames: ['nifailahmad', 's*****a', 's*****d', 's*****d', 'd*****n', 'm*****i']
+INFO:backend:Batch analyzing 6 comments
+using ollama
+LLM response raw text: Here are the classifications:
+
+1. Genuine: Specific details about product quality and seller's service.
+2. Genuine: Detailed review with specific measurements, material description, and satisfaction with purchase.
+3. Suspicious: Repetitive phrases ("jden mmg terbaik", "xpremium") and overly positive language.
+4. Suspicious: Same as Review 3, repetitive phrases and overly positive language.
+5. Genuine: Specific details about delivery speed, packaging, and product quality.
+6. Genuine: Detailed review with specific comments on fabric thickness, stitching, and satisfaction with purchase.
+INFO:backend:analyze_comments_batch_ollama completed in 4.72 seconds for 6 comments
+
+INFO:backend:Processing result 0: explanation='Genuine: Specific details about product quality an...', starts_with_suspicious=False
+INFO:backend:Processing result 1: explanation='Genuine: Detailed review with specific measurement...', starts_with_suspicious=False
+INFO:backend:Processing result 2: explanation='Suspicious: Repetitive phrases ("jden mmg terbaik"...', starts_with_suspicious=True
+
+Batches: 100%|████████████████████████████████████████████████████████████████████████████████| 1/1 [00:00<00:00, 74.32it/s]
+INFO:backend:Semantic analysis for comment 2: 2 scores
+INFO:backend:Calling collect_behavioral_signals for comment 2 with username='s*****d'
+INFO:backend:collect_behavioral_signals called with username='s*****d', comment_length=197, table='product_reviews'
+INFO:backend:Added evidence: User reused comment 3 times
+INFO:backend:Behavioral analysis for comment 2 returned 1 evidence items: ['User reused the same comment.']
+
+INFO:backend:Processing result 3: explanation='Suspicious: Same as Review 3, repetitive phrases a...', starts_with_suspicious=True
+
+INFO:backend:Found suspicious comment 3: username='s*****d', comment='jden mmg terbaik..dh bli brand...'
+Batches: 100%|███████████████████████████████████████████████████████████████████████████████| 1/1 [00:00<00:00, 225.78it/s]
+INFO:backend:Semantic analysis for comment 3: 2 scores
+INFO:backend:Calling collect_behavioral_signals for comment 3 with username='s*****d'
+INFO:backend:collect_behavioral_signals called with username='s*****d', comment_length=197, table='product_reviews'
+INFO:backend:Added evidence: User reused comment 3 times
+INFO:backend:Behavioral analysis for comment 3 returned 1 evidence items: ['User reused the same comment.']
+
+INFO:backend:suspicious_comments input: [{"comment": "jden mmg terbaik..dh bli brand mig xsedap..xpremium..jden jugak premium kain cantik sedap pakai dah basuh bnyak kali tetap ok..beli selai2 dekt live dapat murah giler\ud83d\ude02..total dekat 20 helai dh beli", "username": "s*****d", "analysis": [1.0, 1.0], "behavioral": ["User reused the same comment."]}, {"comment": "jden mmg terbaik..dh bli brand mig xsedap..xpremium..jden jugak premium kain cantik sedap pakai dah basuh bnyak kali tetap ok..beli selai2 dekt live dapat murah giler\ud83d\ude02..total dekat 20 helai dh beli", "username": "s*****d", "analysis": [1.0, 1.0], "behavioral": ["User reused the same comment."]}]
+INFO:backend:determine_review_genuinty called with 2 suspicious comments
+INFO:backend:Processing 2 semantic scores and 2 behavioral results
+
+INFO:backend:determine_review_genuinty result: [{"comment": "jden mmg terbaik..dh bli brand mig xsedap..xpremium..jden jugak premium kain cantik sedap pakai dah basuh bnyak kali tetap ok..beli selai2 dekt live dapat murah giler\ud83d\ude02..total dekat 20 helai dh beli", "verdict": "FAKE", "explanation": "This review is fake because the user reused the same comment multiple times."}, {"comment": "jden mmg terbaik..dh bli brand mig xsedap..xpremium..jden jugak premium kain cantik sedap pakai dah basuh bnyak kali tetap ok..beli selai2 dekt live dapat murah giler\ud83d\ude02..total dekat 20 helai dh beli", "verdict": "FAKE", "explanation": "This review is fake because the user reused the same comment multiple times."}]
+INFO:backend:analyze_comments completed in 10.92 seconds for 6 comments
+```
 ## ⚠️ Limitations
 
 - High false positive rate: Some genuine reviews are mislabeled due to overlap in structure or reused wording.
